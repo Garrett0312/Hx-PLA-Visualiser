@@ -42,13 +42,13 @@ tr.chg td{background:#fff8e1}
 <div id="side">
  <div class="panel">
   <h1>PLA Converter</h1>
-  <p class="sub">Drop in a new-format Alfa Laval plate hanging list (PDF) to get the old-style exploded layout as one scrolling strip.</p>
+  <p class="sub">Drop in an Alfa Laval plate hanging list (PDF) to get the old-style exploded layout as one scrolling strip. Works with the new OnePHL format and with the older "Plate Listing" format (full or short).</p>
   <input type="file" id="file" accept="application/pdf">
   <div id="status" class="sub" style="margin-top:8px"></div>
  </div>
  <div id="after" style="display:none">
   <div class="panel"><h2>Unit</h2><div class="kv" id="info"></div></div>
-  <div class="panel"><h2>Conversion rules</h2>
+  <div class="panel" id="rules"><h2>Conversion rules</h2>
    <div class="row"><label>Plate 1 is <select id="optL1"><option value="A">A</option><option value="B">B</option></select> (letters alternate; both samples start on A)</label></div>
    <div class="row"><label>End Plate I number <select id="optEp1"><option value="chart">Always chart 6x</option><option value="auto">Auto: plain 0x (76 if no holes)</option></select></label></div>
    <div class="row"><label><input type="checkbox" id="optNum" checked> Show plate numbers under plates</label></div>
@@ -66,7 +66,7 @@ tr.chg td{background:#fff8e1}
     <select id="rcode"></select><select id="rlet"><option>A</option><option>B</option></select><button class="sec" id="rapply">Apply</button></div>
    <div class="tw"><table id="tbl"></table></div>
   </div>
-  <div class="panel"><h2>Source page 3 (for eyeballing)</h2><details><summary>Show plate sequence from PLA</summary><img id="p3img" alt=""></details></div>
+  <div class="panel" id="p3panel"><h2 id="p3h">Source page 3 (for eyeballing)</h2><details><summary id="p3s">Show plate sequence from PLA</summary><img id="p3img" alt=""><div id="p3pages"></div></details></div>
   <div class="panel"><b style="font-size:13px">Export current layout</b><div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button id="savesvg">SVG</button><button id="savepng">PNG</button><button id="savepdf">PDF</button></div><div class="sub" id="expmsg" style="margin-top:6px">Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape Letter pages with the key on page 1.</div></div>
  </div>
 </div>
@@ -186,6 +186,61 @@ function parse(pages){
   b.ports=b.holeStr?b.holeStr.split('').map(Number).filter(function(x){return x>0;}):null;});
  return {info:info,flow:flow,blocks:blocks};
 }
+
+// ---------- old-format "Plate Listing" ----------
+function isOldFmt(pages){var t=pages.map(function(p){return p.lines.join('\n');}).join('\n');return /Plate Listing/i.test(t)&&/Plate Code No/i.test(t)&&!/Plate and gasket summary/i.test(t);}
+function parseOld(pages){
+ var all=[];pages.forEach(function(p){all=all.concat(p.lines);});var txt=all.join('\n'),info={};
+ function g(re){var m=txt.match(re);return m?m[1].trim():'';}
+ info.model=g(/^Model\s*:?\s*(\S+)/m);
+ info.projectRef=g(/^Project\s*:?\s*(.*?)(?:\s{2,}Item\b.*)?$/m).replace(/\/$/,'');
+ info.lineRef='';info.grouping=g(/^Grouping\s*:?\s+(.+)$/m);
+ info.groups=(info.grouping.match(/\d+\*\d+/g)||[]).map(function(x){var a=x.split('*');return [+a[0],+a[1]];});
+ var nm=txt.match(/Nozzle orientation\s*:?\s*([ST]\d)\s*(=>|<=|->|<-|→|←)\s*([ST]\d)\s+([ST]\d)\s*(=>|<=|->|<-|→|←)\s*([ST]\d)/);
+ var flow=null;
+ if(nm){var rev=function(a){return a==='<='||a==='<-'||a==='←';};
+  flow={hot:rev(nm[2])?{i:nm[3],o:nm[1]}:{i:nm[1],o:nm[3]},cold:rev(nm[5])?{i:nm[6],o:nm[4]}:{i:nm[4],o:nm[6]}};}
+ info.flowText=nm?nm[0].replace(/Nozzle orientation\s*:?/,'').replace(/\s+/g,' ').trim():'';
+ var tot=txt.match(/^\s*Total\s+(\d+)\s*$/m);info.listedTotal=tot?+tot[1]:0;
+ var rowRe=/^(\d+)(?:\.\.\.(\d+))?(?:\s+(\d+)\.\.\.(\d+))?\s+(\d{10})\s+([AB])\b\s*(.*)$/;
+ var byNum={},plates=[],collapsed=false;
+ all.forEach(function(L){var m=L.match(rowRe);if(!m)return;
+  var n=+m[1],nums=[n];
+  if(m[2]){collapsed=true;nums=[];for(var a=n;a<=+m[2];a+=2)nums.push(a);}
+  if(m[3]){collapsed=true;for(var b=+m[3];b<=+m[4];b+=2)nums.push(b);}
+  var rest=m[7]||'',pm=rest.match(/(\S+\s+[A-Z]+\d+)\s*$/),pat=pm?pm[1]:'';
+  var hm=rest.match(/-{2,}\s*([<>])\s*-{2,}/),cm=rest.match(/={2,}\s*([<>])\s*={2,}/);
+  var have=/[UO=]/.test(rest.replace(pat,''));
+  nums.forEach(function(num,ix){if(byNum[num])return;
+   var o={num:num,codeNo:m[5],letter:m[6],pat:pat,marks:(have&&ix===0&&!m[2]&&!m[3])||(have&&ix===0)?{hot:hm?(hm[1]==='>'?1:-1):0,cold:cm?(cm[1]==='>'?1:-1):0}:null};
+   byNum[num]=o;plates.push(o);});});
+ plates.sort(function(a,b){return a.num-b.num;});
+ return {old:true,info:info,flow:flow,rows:plates,collapsed:collapsed,blocks:[{old:true}]};
+}
+function convertOld(parsed){
+ var notes=[],P=parsed.rows,info=parsed.info;info.nPlates=P.length;
+ var plates=P.map(function(r,i){var code=parseInt(r.codeNo.slice(-2),10),bad=CODES.indexOf(code)<0;
+  var c=bad?3:code;
+  return {code:c,letter:r.letter,role:codeParts(c).fn==='EP2'?'EP2':'CP',turning:false,transition:false,old:true,pla:r,
+   src:'#'+r.num+'  '+r.codeNo+(r.pat?'  '+r.pat:''),unk:bad};});
+ var cc={},dom=null;plates.forEach(function(p){cc[p.code]=(cc[p.code]||0)+1;if(dom===null||cc[p.code]>cc[dom])dom=p.code;});
+ var g=info.groups||[],tpos=[];
+ if(g.length&&g[0][0]>1&&g[0][1]){var bh=g[0][1],bc=g.length>1?g[1][1]:bh;for(var kk=1;kk<=g[0][0]-1;kk++){var tp=1+kk*(bh+bc);if(tp>1&&tp<plates.length&&plates[tp-1].code!==dom&&plates[tp-1].role==='CP'){plates[tp-1].turning=true;tpos.push(tp);}}}
+ var nP=plates.length;
+ if(nP>1){plates[0].lbl='End II';plates[0].role='EP2';plates[nP-1].lbl='End I';}
+ var trp=0;if(nP>3&&plates[nP-2].code!==dom){plates[nP-2].lbl='Trans.';trp=nP-1;}
+ tpos.forEach(function(tp){plates[tp-1].lbl='Turning';});
+ var gaps=[];for(var i=0;i<P.length;i++){if(P[i].num!==i+1){gaps.push(i+1);break;}}
+ if(gaps.length)notes.push(['warn','Plate numbers in the list are not a clean 1 to '+P.length+' run (first problem near plate '+gaps[0]+'). Check the table.']);
+ if(info.listedTotal&&info.listedTotal!==P.length)notes.push(['warn','The PLA says '+info.listedTotal+' plates in total but '+P.length+' were read.']);
+ if(plates.some(function(p){return p.unk;}))notes.push(['warn','Some plate codes do not end in a punch number I know; they are marked "?" in the table.']);
+ notes.push(['ok','Old-format listing: the punch code is the last two digits of the plate code number and the A/B letter is as printed. Nothing is added or assumed, so the last plate shows as '+(P.length?String(P[P.length-1].codeNo).slice(-2):'')+' exactly as the PLA prints it. Roles go by position: first plate End II, last plate End I'+(trp?', plate '+trp+' Trans. (its punch code differs from the channel plates)':'')+'.'+(tpos.length?' Turning plate'+(tpos.length>1?'s':'')+' at '+tpos.join(', ')+' (grouping '+esc(info.grouping.replace(/\s+/g,' '))+' and a punch code different from the channel plates).':'')]);
+ if(parsed.collapsed)notes.push(['ok','Short list: the repeat rows (for example 4 / 6...100) were expanded to all '+P.length+' plates. The hole and flow marks are only printed on the rows shown, so only those rows can be cross-checked.']);
+ var f=parsed.flow;S.flow=f?f:{hot:{i:'S1',o:'S2'},cold:{i:'S3',o:'S4'}};
+ if(!f)notes.push(['warn','Could not read the nozzle orientation. Set the flow ports manually.']);
+ var blocks=[],seen={};plates.forEach(function(p){var k=p.pla.codeNo;if(!seen[k]){seen[k]={old:true,name:k,qty:0,fn:p.role,pat:p.pla.pat};blocks.push(seen[k]);}seen[k].qty++;});
+ S.oldfmt=true;S.blocks=blocks;S.plates=plates;S.orig=plates.map(function(p){return p.code+p.letter;});S.notes=notes;
+}
 function buildSequence(info,blocks,notes){
  var N=info.nPlates||blocks.reduce(function(a,b){return a+b.qty;},0);
  var ep2=blocks.filter(function(b){return b.fn==='EP2';})[0],ep1=blocks.filter(function(b){return b.fn==='EP1';})[0],tra=blocks.filter(function(b){return b.fn==='TRA';})[0];
@@ -216,6 +271,7 @@ function buildSequence(info,blocks,notes){
  return seq;
 }
 function convert(parsed){
+ if(parsed.old){convertOld(parsed);return;}S.oldfmt=false;
  var o=S.opt,notes=[];var seq=buildSequence(parsed.info,parsed.blocks,notes);
  var other=function(l){return l==='A'?'B':'A';};
  var plates=[];
@@ -277,6 +333,11 @@ function analyse(){
  if(!hot.length)live.push(['warn','No hot channels found. Check the hot in/out ports.']);
  if(!cold.length)live.push(['warn','No cold channels found. Check the cold in/out ports.']);
  live.push(['ok','Channels found: hot '+hot.length+', cold '+cold.length+(S.info.grouping?'  (PLA grouping: '+esc(S.info.grouping.replace(/\s+/g,' '))+')':'')+'.']);
+ if(S.oldfmt){var bf=[],bd=[],chk=0;P.forEach(function(pl,ix){var m=pl.pla&&pl.pla.marks;if(!m||(!m.hot&&!m.cold))return;chk++;var k=ix+1,ed=edgeAt[k],pf=m.hot?'hot':'cold',pd=m.hot||m.cold;
+  if(!ed||ed.fluid!==pf)bf.push(k);else if(((ed.from<ed.to)?1:-1)!==pd)bd.push(k);});
+  if(!chk)live.push(['ok','No printed flow marks to cross-check.']);
+  else if(!bf.length&&!bd.length)live.push(['ok','Cross-check: the hot/cold channel and flow direction on all '+chk+' printed rows agree with the old PLA.']);
+  else{if(bf.length)live.push(['warn','Printed hot/cold channel disagrees on plate'+(bf.length>1?'s ':' ')+bf.slice(0,10).join(', ')+(bf.length>10?' ...':'')+'.']);if(bd.length)live.push(['warn','Printed flow direction disagrees on plate'+(bd.length>1?'s ':' ')+bd.slice(0,10).join(', ')+(bd.length>10?' ...':'')+'.']);}}
  S.live=live;
  return {M:M,segOf:segOf,segs:segs,edgeAt:edgeAt,hole:hole};
 }
@@ -336,9 +397,9 @@ function legend(){
  var cnt={},keys=[];P.forEach(function(p){var k=p.code;if(!cnt[k]){cnt[k]={A:0,B:0};keys.push(k);}cnt[k][p.letter]++;});
  keys.sort(function(a,b){return a-b;});
  o+=txt(520,448,'Plates on this list ('+P.length+')',9,'start','#555','font-weight="bold"');
- keys.slice(0,12).forEach(function(k,i){var c=cnt[k];o+=txt(520,461+i*11.5,pad(k)+'  '+FNAME[codeParts(k).fn]+'  ('+digitsOf(k)+')',8)+txt(690,461+i*11.5,(c.A?'A x'+c.A+'  ':'')+(c.B?'B x'+c.B:''),8,'start','#333');});
+ keys.slice(0,12).forEach(function(k,i){var c=cnt[k];o+=txt(520,461+i*11.5,pad(k)+'  '+(S.oldfmt?(function(){var q=P.filter(function(p){return p.code===k;})[0],m={'End II':'End Plate II','End I':'End Plate I','Trans.':'Transition','Turning':'Turning'};return (q&&m[q.lbl])||'Channel';})():FNAME[codeParts(k).fn])+'  ('+digitsOf(k)+')',8)+txt(690,461+i*11.5,(c.A?'A x'+c.A+'  ':'')+(c.B?'B x'+c.B:''),8,'start','#333');});
  return o;}
-function roleLabel(pl){var c=codeParts(pl.code);if(pl.role==='EP2'||c.fn==='EP2')return 'End II';if(pl.role==='EP1'||c.fn==='EP1')return 'End I';if(pl.role==='TRA'||c.fn==='TRA'||pl.transition)return 'Trans.';return pl.turning?'Turning':'';}
+function roleLabel(pl){var c=codeParts(pl.code);if(pl.old)return pl.lbl||'';if(pl.role==='EP2'||c.fn==='EP2')return 'End II';if(pl.role==='EP1'||c.fn==='EP1')return 'End I';if(pl.role==='TRA'||c.fn==='TRA'||pl.transition)return 'Trans.';return pl.turning?'Turning':'';}
 function render(){
  var G=analyse();var P=S.plates,M=P.length;
  var X0=72,PITCH=36,Y=44,TY=118,H=146;
@@ -412,9 +473,14 @@ function render(){
  renderNotes();renderTable();renderBreakdown();
 }
 function thetaOf(b){var m=(b.text||'').match(/[A-Z0-9]+-([A-Z]+)([12])\b/);return m?{pre:m[1],lvl:+m[2]}:null;}
+function ROMAN(n){var r=['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV'];return r[n]||String(n);}
 function renderBreakdown(){var el=document.getElementById('breakdown');if(!el)return;var B=S.blocks||[],P=S.plates||[];if(!B.length){el.style.display='none';return;}
  var h='<div class="bdh">Plate breakdown <span>A position, as punched. Black = holed, white = blind.</span></div><div class="bdg">';
  B.forEach(function(b){
+  if(b.old){var mo=P.filter(function(p){return p.pla&&p.pla.codeNo===b.name;}),fo=mo[0]||{code:3},dg=digitsOf(fo.code),hl2=[null,null,null,null];
+   dg.split('').map(Number).filter(function(x){return x>0;}).forEach(function(d){hl2[CPORT[d]]='#000';});
+   var tm=(b.pat||'').match(/([A-Z]+)([12])$/),sv='<svg viewBox="-3 -3 33.4 47.7" width="112" height="160" xmlns="http://www.w3.org/2000/svg">'+plateSvg({x:0,y:0},'A','#fff',{flat:true,holes:hl2,black:true,diamond:fo.lbl==='End II'})+'</svg>';
+   h+='<div class="bdc"><div class="bdt">Plate '+ROMAN(B.indexOf(b)+1)+'</div>'+sv+'<div class="bdn">'+({'End II':'End Plate II','End I':'End Plate I','Trans.':'Transition Plate','Turning':'Turning Plate'}[fo.lbl]||'Channel Plate')+'</div>'+(tm?'<div class="bdq">'+(+tm[2]===1?'Low':'High')+' &Theta; <span>('+esc(tm[1]+tm[2])+')</span></div>':'')+'<div class="bdq">'+esc(dg)+' &middot; code '+pad(fo.code)+' &middot; x'+b.qty+'</div><div class="bdq">'+esc(b.name)+(b.pat?' &middot; '+esc(b.pat):'')+'</div></div>';return;}
   var mine=P.filter(function(p){return typeof p.src==='string'&&p.src.indexOf('Plate '+b.name+' ')===0;});
   var first=mine[0]||{code:3,letter:'A'};
   var turn=mine.some(function(p){return p.turning;})||b.fn==='TUR',trn=mine.some(function(p){return p.transition;});
@@ -458,18 +524,22 @@ function renderTable(){
 var PORTS=['S1','S2','S3','S4','T1','T2','T3','T4'];
 function renderPanel(){
  var i=S.info;
- document.getElementById('info').innerHTML=[['Model',i.model],['Project',i.projectRef],['Line',i.lineRef],['Plates',i.nPlates],['Grouping',i.grouping],['Nozzles (new)',i.flowText]].map(function(r){return '<b>'+r[0]+'</b><span>'+esc(r[1]||'-')+'</span>';}).join('');
+ document.getElementById('info').innerHTML=[['Model',i.model],['Project',i.projectRef],['Line',i.lineRef],['Plates',i.nPlates],['Grouping',i.grouping],[S.oldfmt?'Nozzles':'Nozzles (new)',i.flowText]].map(function(r){return '<b>'+r[0]+'</b><span>'+esc(r[1]||'-')+'</span>';}).join('');
  opts(document.getElementById('hin'),PORTS,S.flow.hot.i);opts(document.getElementById('hout'),PORTS,S.flow.hot.o);
  opts(document.getElementById('cin'),PORTS,S.flow.cold.i);opts(document.getElementById('cout'),PORTS,S.flow.cold.o);
  opts(document.getElementById('rcode'),CODES,3,codeLabel);document.getElementById('rb').value=S.plates.length;
 }
 var PARSED=null;
-function applyAll(){convert(PARSED);renderPanel();render();}
+function applyAll(){convert(PARSED);document.getElementById('rules').style.display=S.oldfmt?'none':'';document.getElementById('p3h').textContent=S.oldfmt?'Source PLA (for eyeballing)':'Source page 3 (for eyeballing)';document.getElementById('p3s').textContent=S.oldfmt?'Show the full PLA':'Show plate sequence from PLA';document.getElementById('p3img').style.display=S.oldfmt?'none':'';document.getElementById('p3pages').innerHTML='';renderPanel();render();}
 document.getElementById('file').addEventListener('change',async function(e){
  var f=e.target.files[0];if(!f)return;var st=document.getElementById('status');st.textContent='Reading '+f.name+' ...';
  try{
-  var buf=await f.arrayBuffer();var r=await readPdf(buf);PARSED=parse(r.pages);
-  if(!PARSED.blocks.length){st.textContent='This does not look like a new-format PLA (no plate summary found).';return;}
+  var buf=await f.arrayBuffer();var r=await readPdf(buf);
+  if(isOldFmt(r.pages)){PARSED=parseOld(r.pages);if(!PARSED.rows.length){st.textContent='Looked like an old-format listing but I could not read any plate rows.';return;}S.info=PARSED.info;st.textContent='Loaded '+f.name+' (old format)';document.getElementById('after').style.display='block';applyAll();
+   try{var box=document.getElementById('p3pages');for(var pn=1;pn<=r.doc.numPages;pn++){var pgo=await r.doc.getPage(pn);var vpo=pgo.getViewport({scale:1.6});var cvo=document.createElement('canvas');cvo.width=vpo.width;cvo.height=vpo.height;await pgo.render({canvasContext:cvo.getContext('2d'),viewport:vpo}).promise;var im=document.createElement('img');im.src=cvo.toDataURL('image/png');im.alt='PLA page '+pn;im.style.cssText='width:100%;display:block;margin-bottom:6px;border:1px solid #ddd';box.appendChild(im);}}catch(_){}
+   return;}
+  PARSED=parse(r.pages);
+  if(!PARSED.blocks.length){st.textContent='This does not look like a PLA I know (no plate summary and no old-style plate listing found).';return;}
   S.info=PARSED.info;st.textContent='Loaded '+f.name;document.getElementById('after').style.display='block';applyAll();
   try{var pg=await r.doc.getPage(Math.min(3,r.doc.numPages));var vp=pg.getViewport({scale:1.8});var cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;document.getElementById('p3img').src=cv.toDataURL('image/png');}catch(_){}
  }catch(err){st.textContent='Could not read that PDF: '+err.message;console.error(err);}
@@ -535,7 +605,7 @@ async function makePdf(el){
  putS('trailer\n<< /Size '+total+' /Root 1 0 R >>\nstartxref\n'+xo+'\n%%EOF');
  return new Blob(parts,{type:'application/pdf'});
 }
-window.__S=S;window.__T={CPORT:CPORT,findBase:findBase,digitsOf:digitsOf};
+window.__S=S;window.__T={readPdf:readPdf,parseOld:parseOld,CPORT:CPORT,findBase:findBase,digitsOf:digitsOf};
 })();
 </script>
 </body></html>
