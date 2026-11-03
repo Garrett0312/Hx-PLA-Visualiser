@@ -291,9 +291,9 @@ var COL={hot:'#e60000',cold:'#0000e6'};
 var FILL={hot:'#ffd3d3',cold:'#d3d3ff',none:'#fff'};
 function arrow(x,y,dir,c,s){s=s||2.6;return '<polygon points="'+(x+dir*s)+','+y+' '+(x-dir*s*0.6)+','+(y-s*0.7)+' '+(x-dir*s*0.6)+','+(y+s*0.7)+'" fill="'+c+'"/>';}
 function varrow(x1,y1,x2,y2,c,w){var dx=x2-x1,dy=y2-y1,l=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/l,uy=dy/l,ex=x2-ux*.5,ey=y2-uy*.5,bx=ex-ux*5,by=ey-uy*5;
- return '<line x1="'+x1+'" y1="'+y1+'" x2="'+bx+'" y2="'+by+'" stroke="'+c+'" stroke-width="'+w+'"/><polygon points="'+ex+','+ey+' '+(bx-uy*2.6)+','+(by+ux*2.6)+' '+(bx+uy*2.6)+','+(by-ux*2.6)+'" fill="'+c+'"/>';}
+ return '<line x1="'+x1+'" y1="'+y1+'" x2="'+bx+'" y2="'+by+'" stroke="'+c+'" stroke-width="'+w+'"/><polygon points="'+ex+','+ey+' '+(bx-uy*2.6)+','+(by+ux*2.6)+' '+(bx+uy*2.6)+','+(by-ux*2.6)+'" fill="'+c+'"/>'+(function(){var mx=(x1+x2)/2+ux*1.5,my=(y1+y2)/2+uy*1.5,a=2.6;return '<polygon points="'+(mx+ux*a)+','+(my+uy*a)+' '+(mx-ux*a*.6-uy*a*.9)+','+(my-uy*a*.6+ux*a*.9)+' '+(mx-ux*a*.6+uy*a*.9)+','+(my-uy*a*.6-ux*a*.9)+'" fill="'+c+'"/>';})();}
 function gtr(s,flat){return flat?'<g transform="translate('+s.x+','+s.y+')">':'<g transform="matrix(1,'+SH+',0,1,'+s.x+','+s.y+')">';}
-function isDiamond(pl){var c=codeParts(pl.code);return c.fn==='EP2'||!!pl.turning||pl.role==='EP2';}
+function isDiamond(pl){var c=codeParts(pl.code);return c.fn==='EP2'||pl.role==='EP2';}
 function plateSvg(s,letter,fill,o){  // o: {ghost, frame, pressure, holes:[{c,col}|null x4], nums}
  o=o||{};var g=gtr(s,o.flat)+(o.ghost?'<g opacity=".32">':'');
  var blue=o.pressure||o.frame;if(blue)g+='<rect x="2.8" y="-1.7" width="26.6" height="40.5" rx="3.2" fill="#1a1aa8" stroke="#111" stroke-width="1"/>';
@@ -418,7 +418,7 @@ function renderBreakdown(){var el=document.getElementById('breakdown');if(!el)re
   var mine=P.filter(function(p){return typeof p.src==='string'&&p.src.indexOf('Plate '+b.name+' ')===0;});
   var first=mine[0]||{code:3,letter:'A'};
   var turn=mine.some(function(p){return p.turning;})||b.fn==='TUR',trn=mine.some(function(p){return p.transition;});
-  var dia=b.fn==='EP2'||turn;
+  var dia=b.fn==='EP2';
   var nm=b.fn==='EP2'?'End Plate II':b.fn==='EP1'?'End Plate I':(b.fn==='TRA'||trn)?'Transition Plate':turn?'Turning Plate':'Channel Plate';
   var digs=b.holeStr||'????',hl=[null,null,null,null];
   if(b.holeStr)b.holeStr.split('').map(Number).filter(function(x){return x>0;}).forEach(function(d){hl[CPORT[d]]='#000';});
