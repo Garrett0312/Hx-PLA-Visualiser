@@ -264,7 +264,7 @@ tr.chg td {
       <div id="side">
         <div class="panel">
           <h1>PLA Visualizer</h1>
-          <p class="sub">
+          <p class="sub" id="intro">
             Drop in an Alfa Laval plate hanging list (PDF) to get the old-style exploded layout as one scrolling
             strip. Works with the new OnePHL format and with the older "Plate Listing" format (full or short).
           </p>
@@ -277,6 +277,32 @@ tr.chg td {
           <div class="panel">
             <h2>Unit</h2>
             <div class="kv" id="info"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Flow Port Numbers</h2>
+            <div class="flowgrid">
+              <span></span><b>In</b><b>Out</b>
+              <span id="hlab" style="color: #c00; font-weight: 600">Hot</span>
+              <select id="hin"></select>
+              <select id="hout"></select>
+              <span id="clab" style="color: #0030d0; font-weight: 600">Cold</span>
+              <select id="cin"></select>
+              <select id="cout"></select>
+            </div>
+          </div>
+
+          <div class="panel">
+            <b style="font-size: 13px">Export current layout</b>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
+              <button id="savesvg">SVG</button>
+              <button id="savepng">PNG</button>
+              <button id="savepdf">PDF</button>
+            </div>
+            <div class="sub" id="expmsg" style="margin-top: 6px">
+              Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape
+              Letter pages with the key on page 1.
+            </div>
           </div>
 
           <!-- New-format files only (hidden for old-format files) -->
@@ -308,24 +334,6 @@ tr.chg td {
           </div>
 
           <div class="panel">
-            <h2>Flow (old-style port numbers)</h2>
-            <div class="flowgrid">
-              <span></span><b>In</b><b>Out</b>
-              <span id="hlab" style="color: #c00; font-weight: 600">Hot</span>
-              <select id="hin"></select>
-              <select id="hout"></select>
-              <span id="clab" style="color: #0030d0; font-weight: 600">Cold</span>
-              <select id="cin"></select>
-              <select id="cout"></select>
-            </div>
-          </div>
-
-          <div class="panel">
-            <h2>Checks &amp; assumptions</h2>
-            <div id="notes"></div>
-          </div>
-
-          <div class="panel">
             <h2>Plates</h2>
             <!-- Bulk edit: set a range of plates to one code and letter -->
             <div class="row">
@@ -342,27 +350,9 @@ tr.chg td {
             <div class="tw"><table id="tbl"></table></div>
           </div>
 
-          <!-- New format: page 3 of the PDF. Old format: every page of the PDF. -->
-          <div class="panel" id="p3panel">
-            <h2 id="p3h">Source page 3 (for eyeballing)</h2>
-            <details>
-              <summary id="p3s">Show plate sequence from PLA</summary>
-              <img id="p3img" alt="" />
-              <div id="p3pages"></div>
-            </details>
-          </div>
-
           <div class="panel">
-            <b style="font-size: 13px">Export current layout</b>
-            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
-              <button id="savesvg">SVG</button>
-              <button id="savepng">PNG</button>
-              <button id="savepdf">PDF</button>
-            </div>
-            <div class="sub" id="expmsg" style="margin-top: 6px">
-              Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape
-              Letter pages with the key on page 1.
-            </div>
+            <h2>Checks &amp; assumptions</h2>
+            <div id="notes"></div>
           </div>
         </div>
       </div>
@@ -374,6 +364,16 @@ tr.chg td {
         <div id="editbar" style="display: none"></div> <!-- selected-plate editor, short view, zoom -->
         <div id="strip"></div> <!-- the scrolling SVG -->
         <div id="breakdown" style="display: none"></div> <!-- Plate I / II / III cards -->
+
+        <!-- New format: page 3 of the PDF. Old format: every page of the PDF. -->
+        <div class="panel" id="p3panel" style="display: none">
+          <h2 id="p3h">Source PLA page</h2>
+          <details open>
+            <summary id="p3s">Show plate sequence from PLA</summary>
+            <img id="p3img" alt="" />
+            <div id="p3pages"></div>
+          </details>
+        </div>
       </div>
     </div>
 
@@ -453,9 +453,24 @@ const FLAT_PORT_X = [5.4, 22, 5.4, 22];
 const FLAT_PORT_Y = [5.6, 5.6, 36.1, 36.1];
 const FLAT_PORT_RADIUS = 3.5;
 
+// ---- Chevron (the V on each plate) and theta ----------------------------
+// The V's angle shows the plate's theta, as in Alfa Laval's reference picture:
+// LOW theta = steep V (lines closer to vertical), HIGH theta = flat V (lines closer to horizontal).
+// Angles are in degrees up from horizontal. Level 1 = Low theta, level 2 = High theta.
+// Plates whose theta is unknown keep the original neutral V.
+const THETA_ANGLE = { 1: 52, 2: 24 };
+const CHEVRON_CENTER_Y = 20.85; // the V stays centred here whatever the angle
+//const CHEVRON_X = [3.9, 13.45, 23]; // left end, apex, right end
+//const CHEVRON_X = [6, 13.45, 20.9]
+const CHEVRON_X = {
+  1: [6, 13.45, 20.9],   // Low theta:  left end, apex, right end
+  2: [3.9, 13.45, 23],   // High theta: left end, apex, right end
+};
+
 // ---- The strip layout ----------------------------------------------------
 const STRIP = {
-  firstX: 72,  // x of the frame plate
+  //firstX: 72,  // x of the frame plate
+  firstX: 40,
   pitch: 36,   // distance from one plate to the next
   plateY: 44,  // top of the plates
   labelY: 118, // baseline of the "03  A" labels
@@ -477,6 +492,18 @@ const ROLE_FULL_NAME = {
   'Trans.': 'Transition Plate',
   Turning: 'Turning Plate',
 };
+
+// ---- PDF export ------------------------------------------------------------
+// The strip is cut into rows (like the old paper charts) and the rows are stacked on each page.
+const PDF_PAGE = {
+  slotsPerRow: 13,     // plate slots per row (the frame plate takes the first slot of row 1)
+  rowsPerPage: 3,      // most rows on one page before starting a new page
+  margin: 24,          // left/right page margin, in points
+  keyScale: 0.45,      // size of the key in the top-right corner of page 1
+  rowGap: 4,           // space between rows, in points
+  breakArrowSize: 4,   // size of the arrowheads at the row breaks
+};
+
 
 
 /* ==========================================================================
@@ -626,6 +653,7 @@ const S = {
   notes: [],
   live: [],
   orig: [],
+  short: true,
 };
 
 // pdf.js does its parsing in a "worker" script. That script is stored at the very bottom of this
@@ -725,9 +753,59 @@ function readNozzleOrientation(text) {
   return { flow, text: whole.replace(/Nozzle orientation\s*:?/, '').replace(/\s+/g, ' ').trim() };
 }
 
-/** Pull "2*52" style pairs out of a grouping string: "2*52MH 2*52ML" -> [[2,52],[2,52]]. */
-function readGroups(groupingText) {
-  return (groupingText.match(/\d+\*\d+/g) || []).map((pair) => pair.split('*').map(Number));
+/**
+ * Split the grouping text into the channels in each pass, hot side and cold side.
+ *   "2*52MH  2*52ML"                -> hot [52, 52]      cold [52, 52]   (2 passes of 52)
+ *   "1*17MH +1*13MH  1*16ML +1*13ML" -> hot [17, 13]      cold [16, 13]   (pass 1 = 17/16, pass 2 = 13/13)
+ * The hot and cold halves are separated by a wide gap in the PDF (two or more spaces).
+ * Returns null when the grouping can't be read.
+ */
+function readPasses(groupingText) {
+  const expand = (text) => {
+    const passes = [];
+    (text.match(/\d+\*\d+/g) || []).forEach((pair) => {
+      const [count, channels] = pair.split('*').map(Number);
+      for (let k = 0; k < count; k++) passes.push(channels);
+    });
+    return passes;
+  };
+  const halves = (groupingText || '').trim().split(/\s{2,}/);
+  let hot;
+  let cold;
+  if (halves.length === 2) {
+    hot = expand(halves[0]);
+    cold = expand(halves[1]);
+  } else {
+    // No clear gap: split all the pairs found into a first half (hot) and second half (cold).
+    const all = expand(groupingText || '');
+    if (!all.length || all.length % 2) return null;
+    hot = all.slice(0, all.length / 2);
+    cold = all.slice(all.length / 2);
+  }
+  return hot.length && hot.length === cold.length ? { hot, cold } : null;
+}
+
+/**
+ * Plate numbers of the turning plates, worked out from the grouping.
+ * The turning plate between pass k and pass k+1 is plate 1 + (hot + cold channels of passes 1..k).
+ * Returns [] for a single-pass unit, or null if the grouping can't be read.
+ */
+function turningPositions(groupingText) {
+  const passes = readPasses(groupingText);
+  if (!passes) return null;
+  const positions = [];
+  let plateNo = 1;
+  for (let k = 0; k < passes.hot.length - 1; k++) {
+    plateNo += passes.hot[k] + passes.cold[k];
+    positions.push(plateNo);
+  }
+  return positions;
+}
+
+/** "DR15-M2 TI 0.50" / "T8 B2" style text -> theta level: 1 = Low, 2 = High, or undefined. */
+function thetaLevel(text) {
+  const m = (text || '').match(/[A-Z0-9]+-([A-Z]+)([12])\b/);
+  return m ? +m[2] : undefined;
 }
 
 /**
@@ -751,7 +829,6 @@ function parse(pages) {
     nPlates: parseInt(find(/Number of plates\s+(\d+)/), 10) || 0,
     grouping: find(/^Grouping\s+(.+)$/m),
   };
-  info.groups = readGroups(info.grouping);
   const nozzle = readNozzleOrientation(text);
   info.flowText = nozzle.text;
 
@@ -830,24 +907,21 @@ function buildSequence(info, blocks, notes) {
   seq[N - 1] = transition || endPlate1 || main;
   if (transition && endPlate1 && N > 2) seq[N - 2] = endPlate1;
 
-  const groups = info.groups || [];
   if (specials.length) {
-    const passesHot = groups.length ? groups[0][0] : 1;
-    const hotPerPass = groups.length ? groups[0][1] : 0;
-    const coldPerPass = groups.length > 1 ? groups[1][1] : hotPerPass;
+    const turnAt = turningPositions(info.grouping); // null if the grouping can't be read
     const groupingText = (info.grouping || '').replace(/\s+/g, ' ');
     let positions = [];
     let turningCount = null;
 
-    if (groups.length && specials.length > passesHot - 1 && passesHot > 1 && hotPerPass) {
+    if (turnAt && turnAt.length && specials.length > turnAt.length) {
       // More odd plates than turning positions: the extras go just before End Plate I.
-      turningCount = passesHot - 1;
+      turningCount = turnAt.length;
       const extras = specials.length - turningCount;
-      for (let k = 1; k <= turningCount; k++) positions.push(1 + k * (hotPerPass + coldPerPass));
+      positions = turnAt.slice();
       for (let k = extras; k >= 1; k--) positions.push(N - k);
       notes.push(['ok', `Turning plate at position ${positions.slice(0, turningCount).join(', ')} (from the grouping ${groupingText}). The extra non-standard plate${extras > 1 ? 's are' : ' is'} placed just before End Plate 1 (plate ${positions.slice(turningCount).join(', ')}). Confirm against the page-3 picture.`]);
-    } else if (groups.length && specials.length === passesHot - 1 && hotPerPass) {
-      for (let k = 1; k <= passesHot - 1; k++) positions.push(1 + k * (hotPerPass + coldPerPass));
+    } else if (turnAt && turnAt.length && specials.length === turnAt.length) {
+      positions = turnAt.slice();
       notes.push(['ok', `Turning plate position${positions.length > 1 ? 's' : ''} worked out from the grouping (${groupingText}): plate ${positions.join(', ')}. Confirm against the page-3 picture.`]);
     } else {
       // No usable grouping: spread them evenly and say so.
@@ -880,6 +954,46 @@ function buildSequence(info, blocks, notes) {
     }
   });
   return seq;
+}
+
+/**
+ * Two channel blocks can share the same punch holes and differ only in theta (e.g. Plate II = M2 x28,
+ * Plate III = M1 x29, both 1234). buildSequence() fills the stack with just one of them, so here the
+ * ordinary channel plates are split between the two by A/B letter: one theta rides on the A plates,
+ * the other on the B plates. The pairing that best matches the quantities in the PLA wins; if the
+ * quantities tie, the Low theta block goes on the A plates (as on the PLAs seen so far).
+ */
+function assignThetaByLetter(plates, seq, blocks) {
+  const channelBlocks = blocks.filter((b) => b.fn === 'CP');
+  const main = channelBlocks.slice().sort((a, b) => b.qty - a.qty)[0];
+  if (!main) return;
+  const family = channelBlocks.filter((b) => b.holeStr === main.holeStr);
+  if (family.length !== 2) return; // only the clear two-theta case is handled
+
+  const ordinary = []; // plate indexes that are plain channel plates of this family
+  seq.forEach((b, i) => {
+    if (b === main) ordinary.push(i);
+  });
+  const countA = ordinary.filter((i) => plates[i].letter === 'A').length;
+  const countB = ordinary.length - countA;
+
+  // Try both pairings and keep the one whose quantities fit the letters best.
+  const [first, second] = family;
+  const misfit = (onA, onB) => Math.abs(onA.qty - countA) + Math.abs(onB.qty - countB);
+  let onA = first;
+  let onB = second;
+  const straight = misfit(first, second);
+  const swapped = misfit(second, first);
+  if (swapped < straight || (swapped === straight && (thetaLevel(second.text) || 9) < (thetaLevel(first.text) || 9))) {
+    onA = second;
+    onB = first;
+  }
+
+  ordinary.forEach((i) => {
+    const block = plates[i].letter === 'A' ? onA : onB;
+    plates[i].theta = thetaLevel(block.text);
+    plates[i].src = 'Plate ' + block.name + ' ' + (block.holeStr || '?');
+  });
 }
 
 /** Turn a parsed new-format PLA into S.plates (one entry per plate) and S.notes. */
@@ -919,14 +1033,17 @@ function convertNew(parsed) {
       transition: !!block.transition,
       src: 'Plate ' + block.name + ' ' + (block.holeStr || '?'),
       unk: unknown || !block.fnKnown,
+      theta: thetaLevel(block.text),
     };
   });
+
+  assignThetaByLetter(plates, seq, parsed.blocks);
 
   S.flow = parsed.flow || { hot: { i: 'S1', o: 'S2' }, cold: { i: 'S3', o: 'S4' } };
   if (!parsed.flow) notes.push(['warn', 'Could not read the nozzle orientation. Set the flow ports manually.']);
   S.blocks = parsed.blocks;
   S.plates = plates;
-  S.orig = plates.map((p) => p.code + p.letter);
+  S.orig = plates.map((p) => p.code + p.letter + (p.turning ? 't' : ''));
   if (plates.some((p) => p.unk)) {
     notes.push(['warn', 'Some plates use a function or hole code I could not interpret; rows marked "?" need checking.']);
   }
@@ -964,6 +1081,12 @@ function punchCodeOf(codeNo) {
   return parseInt(codeNo.replace(/\s/g, '').slice(-2), 10);
 }
 
+/** Plate Pattern text "T8 B2" -> theta level (1 Low / 2 High) from its last digit, or undefined. */
+function patternTheta(pattern) {
+  const m = (pattern || '').match(/[A-Z]+([12])$/);
+  return m ? +m[1] : undefined;
+}
+
 /**
  * Read an old-format PLA.
  * Returns { old:true, info, flow, rows, collapsed, blocks }.
@@ -987,7 +1110,6 @@ function parseOld(pages) {
     lineRef: '',
     grouping: find(/^Grouping\s*:?\s+(.+)$/m),
   };
-  info.groups = readGroups(info.grouping);
   const nozzle = readNozzleOrientation(text);
   info.flowText = nozzle.text;
   const total = text.match(/^\s*Total\s+(\d+)\s*$/m); // the "Total 210" under the article list
@@ -1069,6 +1191,7 @@ function convertOld(parsed) {
       turning: false,
       transition: false,
       old: true,
+      theta: patternTheta(row.pat),
       pla: row,
       src: `#${row.num}  ${row.codeNo}${row.pat ? '  ' + row.pat : ''}`,
       unk: unknown,
@@ -1085,20 +1208,14 @@ function convertOld(parsed) {
   });
 
   // ---- Turning plates: at the pass boundaries given by the grouping ----
-  const groups = info.groups || [];
   const turningAt = [];
-  if (groups.length && groups[0][0] > 1 && groups[0][1]) {
-    const hotPerPass = groups[0][1];
-    const coldPerPass = groups.length > 1 ? groups[1][1] : hotPerPass;
-    for (let k = 1; k <= groups[0][0] - 1; k++) {
-      const plateNo = 1 + k * (hotPerPass + coldPerPass);
-      const plate = plates[plateNo - 1];
-      if (plate && plateNo > 1 && plateNo < count && plate.code !== dominant && plate.role === 'CP') {
-        plate.turning = true;
-        turningAt.push(plateNo);
-      }
+  (turningPositions(info.grouping) || []).forEach((plateNo) => {
+    const plate = plates[plateNo - 1];
+    if (plate && plateNo > 1 && plateNo < count && plate.code !== dominant && plate.role === 'CP') {
+      plate.turning = true; // roleLabel() turns this into the "Turning" label
+      turningAt.push(plateNo);
     }
-  }
+  });
 
   // ---- Labels shown above the plates ----
   if (count > 1) {
@@ -1111,7 +1228,6 @@ function convertOld(parsed) {
     plates[count - 2].lbl = 'Trans.';
     transitionAt = count - 1;
   }
-  turningAt.forEach((plateNo) => (plates[plateNo - 1].lbl = 'Turning'));
 
   // ---- Notes shown under "Checks & assumptions" ----
   const firstBad = rows.findIndex((row, i) => row.num !== i + 1);
@@ -1147,7 +1263,7 @@ function convertOld(parsed) {
   S.oldfmt = true;
   S.blocks = blocks;
   S.plates = plates;
-  S.orig = plates.map((p) => p.code + p.letter);
+  S.orig = plates.map((p) => p.code + p.letter + (p.turning ? 't' : ''));
   S.notes = notes;
 }
 
@@ -1426,6 +1542,7 @@ function isDiamond(plate) {
  *     nums     [4,1,3,2]-style numbers to print in the holes
  *     flat     un-sheared version (used for the key and breakdown cards)
  *     black    draw holes solid black / blind holes with a black outline
+ *     theta    1 = low theta (steep chevron), 2 = high theta (flat chevron), omitted = neutral
  */
 function plateSvg(pos, letter, fill, o) {
   o = o || {};
@@ -1460,7 +1577,7 @@ function plateSvg(pos, letter, fill, o) {
   } else if (!o.pressure) {
     // Gasket lines. The A drawing is rotated 180 degrees to get B.
     const rotate = letter === 'B' ? 'rotate(180 13.7 20.85)' : '';
-    const chevron = '<polyline points="3.9,18 13.4,23.7 23,17.9"/>';
+    const chevron = `<polyline points="${chevronPoints(o.theta)}"/>`;
     const diagonals = '<line x1="9.7" y1="0.8" x2="26.9" y2="16.4"/><line x1="9.7" y1="40.9" x2="26.9" y2="25.3"/>';
     const extraDiagonals = o.diamond ? '<line x1="17.7" y1="0.8" x2="0.5" y2="16.4"/><line x1="17.7" y1="40.9" x2="0.5" y2="25.3"/>' : '';
     g += `<g transform="${rotate}" stroke="#333" stroke-width=".9" fill="none" stroke-linecap="round" stroke-linejoin="round">${chevron}${diagonals}${extraDiagonals}</g>`;
@@ -1468,9 +1585,24 @@ function plateSvg(pos, letter, fill, o) {
   return g + (o.ghost ? '</g>' : '') + '</g>';
 }
 
+/**
+ * Points of the V on a plate. Its angle depends on theta (see THETA_ANGLE in ## 01).
+ * Unknown theta gives the original neutral V.
+ */
+function chevronPoints(theta) {
+  const angle = THETA_ANGLE[theta];
+  if (!angle) return '3.9,18 13.4,23.7 23,17.9';
+  //const [left, apex, right] = CHEVRON_X;
+  const [left, apex, right] = CHEVRON_X[theta];
+  const drop = (right - apex) * Math.tan((angle * Math.PI) / 180); // how far the apex sits below the arm ends
+  const armY = (CHEVRON_CENTER_Y - drop / 2).toFixed(2);
+  const apexY = (CHEVRON_CENTER_Y + drop / 2).toFixed(2);
+  return `${left},${armY} ${apex},${apexY} ${right},${armY}`;
+}
+
 /** Short label printed above a plate ("End II", "Turning" ...), or '' for an ordinary plate. */
 function roleLabel(plate) {
-  if (plate.old) return plate.lbl || ''; // old-format plates carry their label with them
+  if (plate.old) return plate.turning ? 'Turning' : plate.lbl || ''; // old-format plates carry their label with them
   const { fn } = codeParts(plate.code);
   if (plate.role === 'EP2' || fn === 'EP2') return 'End II';
   if (plate.role === 'EP1' || fn === 'EP1') return 'End I';
@@ -1518,17 +1650,47 @@ function legend() {
     });
     return color;
   };
+  
+  // "Hot in", "Cold out" ... for the nozzle connected to a given side+port (or null)
+  const nozzleLabel = (side, port) => {
+    let label = null;
+    [['hot', 'i'], ['hot', 'o'], ['cold', 'i'], ['cold', 'o']].forEach(([fluid, kind]) => {
+      const nozzle = f[fluid][kind];
+      if (nozzle[0] === side && +nozzle[1] === port) {
+        //label = { text: `${fluid === 'hot' ? 'Hot' : 'Cold'} ${kind === 'i' ? 'in' : 'out'}`, color: COL[fluid] };
+        label = { text: `${kind === 'i' ? 'IN' : 'OUT'}`, color: COL[fluid] };
+      }
+    });
+    return label;
+  };
+
   const frameColors = [nozzleColor('S', 4), nozzleColor('S', 1), nozzleColor('S', 3), nozzleColor('S', 2)];
   const pressureColors = [nozzleColor('T', 1), nozzleColor('T', 4), nozzleColor('T', 2), nozzleColor('T', 3)];
+  const frameLabels = [nozzleLabel('S', 4), nozzleLabel('S', 1), nozzleLabel('S', 3), nozzleLabel('S', 2)];
+  const pressureLabels = [nozzleLabel('T', 1), nozzleLabel('T', 4), nozzleLabel('T', 2), nozzleLabel('T', 3)];
   out += txt(290, 448, 'Frame plate (front view)', 9, 'start', '#555', 'font-weight="bold"');
   out += txt(420, 448, 'Pressure plate (outside)', 9, 'start', '#555', 'font-weight="bold"');
-  [[290, frameColors, ['S4', 'S1', 'S3', 'S2']], [420, pressureColors, ['T1', 'T4', 'T2', 'T3']]].forEach(([x, colors, names]) => {
+  [[290, frameColors, ['S4', 'S1', 'S3', 'S2'], frameLabels], [420, pressureColors, ['T1', 'T4', 'T2', 'T3'], pressureLabels]].forEach(([x, colors, names, labels]) => {
+    out += `<rect x="${x}" y="456" width="64" height="92" rx="5" fill="#fafafa" stroke="#111" stroke-width="1.2"/>`;
+    [[x + 14, 470], [x + 50, 470], [x + 14, 534], [x + 50, 534]].forEach(([cx, cy], i) => {
+      out += `<circle cx="${cx}" cy="${cy}" r="8" fill="${colors[i] || '#fff'}" fill-opacity="${colors[i] ? 0.7 : 1}" stroke="#111" stroke-width="1"/>`
+        + txt(cx, cy + 3, names[i], 8, 'middle', '#111', 'font-weight="bold"');
+      if (labels[i]) {
+        // top ports: label just below the circle; bottom ports: just above it
+        out += txt(cx, i < 2 ? cy + 18 : cy - 12, labels[i].text, 7, 'middle', labels[i].color, 'font-weight="bold"');
+      }
+    });
+  });
+
+
+  /*[[290, frameColors, ['S4', 'S1', 'S3', 'S2']], [420, pressureColors, ['T1', 'T4', 'T2', 'T3']]].forEach(([x, colors, names]) => {
     out += `<rect x="${x}" y="456" width="64" height="92" rx="5" fill="#fafafa" stroke="#111" stroke-width="1.2"/>`;
     [[x + 14, 470], [x + 50, 470], [x + 14, 534], [x + 50, 534]].forEach(([cx, cy], i) => {
       out += `<circle cx="${cx}" cy="${cy}" r="8" fill="${colors[i] || '#fff'}" fill-opacity="${colors[i] ? 0.7 : 1}" stroke="#111" stroke-width="1"/>`
         + txt(cx, cy + 3, names[i], 8, 'middle', '#111', 'font-weight="bold"');
     });
-  });
+  });*/
+
 
   // ---- Codes used on this list ----
   const counts = {};
@@ -1547,7 +1709,7 @@ function legend() {
     if (!S.oldfmt) return FUNCTION_NAME[codeParts(code).fn];
     const first = P.find((p) => p.code === code); // old format: name comes from the plate's label
     const short = { 'End II': 'End Plate II', 'End I': 'End Plate I', 'Trans.': 'Transition', Turning: 'Turning' };
-    return (first && short[first.lbl]) || 'Channel';
+    return (first && short[roleLabel(first)]) || 'Channel';
   };
   codes.slice(0, 12).forEach((code, i) => {
     const c = counts[code];
@@ -1668,6 +1830,7 @@ function render() {
   let plates = '';
   let text = '';
   let over = '';
+  const joins = []; // every flow line that runs between two neighbouring plates (the PDF export uses these at row breaks)
 
   const line = (x1, y1, x2, y2, color) =>
     `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${W_LINE}"/>`;
@@ -1697,6 +1860,7 @@ function render() {
       const ya = portY(prev, segment.p);
       seg += line(portX(prev, segment.p), ya, portX(i, segment.p), ya, color)
         + arrow(slot[prev].x + 31.5 + segment.dir * 1, ya, segment.dir, color);
+      joins.push({ prev, i, y: ya, color, dir: segment.dir });
     }
 
     // Nozzle connections: the stub from the edge of the picture to the first/last plate.
@@ -1707,8 +1871,11 @@ function render() {
       const x = portX(i, p);
       if (e.side === 'S') {
         const dir = e.kind === 'i' ? 1 : -1;
-        seg += line(24, y, x, y, color) + arrow(dir > 0 ? 50 : 44, y, dir, color);
-        text += txt(2, y + 3, 'S' + p, 9, 'start', '#111', 'font-family="Arial"');
+        //seg += line(24, y, x, y, color) + arrow(dir > 0 ? 50 : 44, y, dir, color);
+        //text += txt(2, y + 3, 'S' + p, 9, 'start', '#111', 'font-family="Arial"');
+        const x0 = slot[i].x; // the stub and its label are placed relative to the frame plate
+        seg += line(x0 - 16, y, x, y, color) + arrow(x0 - 8, y, dir, color);
+        text += txt(x0 - 30, y + 3, 'S' + p, 9, 'start', '#111', 'font-family="Arial"');
       } else {
         const dir = e.kind === 'i' ? -1 : 1;
         const x2 = slot[i].x + 54;
@@ -1753,13 +1920,14 @@ function render() {
         const y = portY(i, port);
         const x = portX(i, port);
         seg += line(portX(prev, port), y, x, y, color) + arrow(slot[prev].x + 31.5 + dir, y, dir, color);
+        joins.push({ prev, i, y, color, dir });
         over += line(s0.x + 0.4, y, x, y, color) + (dir === 1 ? arrow(x - 1, y, 1, color) : '');
       });
     }
 
     // The plate drawing, with its flow arrow from port to port.
     const repeat = repOf[i]; // set when this plate stands in for a collapsed run
-    let one = plateSvg(s0, plate.letter, tint, { holes: holeColors(G, i), diamond, dash: !!repeat });
+    let one = plateSvg(s0, plate.letter, tint, { holes: holeColors(G, i), diamond, dash: !!repeat, theta: plate.theta });
     if (edge && edge.from) {
       one += plateFlowArrow(portX(i, edge.from), portY(i, edge.from), portX(i, edge.to), portY(i, edge.to), COL[edge.fluid], FLOW_LINE_WIDTH);
     }
@@ -1802,6 +1970,8 @@ function render() {
     }
   }
 
+  S.joins = joins;
+
   // ---- 5. Assemble the SVG: flow lines behind, plates, then front pieces and text ----
   const zoom = S.zoom || ZOOM.start;
   const svg = `<svg id="stripsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * zoom}" height="${H * zoom}">`
@@ -1813,6 +1983,8 @@ function render() {
   strip.innerHTML = svg;
   strip.scrollLeft = scrollLeft;
   document.getElementById('empty').style.display = 'none';
+  document.getElementById('intro').style.display = 'none';
+  document.getElementById('p3panel').style.display = 'block';
 
   const legendBox = document.getElementById('legendbox');
   legendBox.style.display = 'block';
@@ -1842,17 +2014,17 @@ const $ = (id) => document.getElementById(id);
 // Plate breakdown cards (one card per unique plate)
 // ---------------------------------------------------------------------------
 
-/** "T8 B2" / "DR6-P2" -> {pre:'B', lvl:2}. Level 1 = Low Theta, level 2 = High Theta. */
+/** "DR6-P2" -> {pre:'P', lvl:2}. Level 1 = Low theta, level 2 = High theta. */
 function thetaOf(block) {
   const m = (block.text || '').match(/[A-Z0-9]+-([A-Z]+)([12])\b/);
   return m ? { pre: m[1], lvl: +m[2] } : null;
 }
 
 /** The little flat plate picture on a breakdown card. */
-function breakdownPlatePicture(digits, isDiamondPlate) {
+function breakdownPlatePicture(digits, isDiamondPlate, theta) {
   const holes = [null, null, null, null];
   digits.split('').map(Number).filter((d) => d > 0).forEach((d) => (holes[DIGIT_TO_CORNER[d]] = '#000'));
-  const plate = plateSvg({ x: 0, y: 0 }, 'A', '#fff', { flat: true, holes, black: true, diamond: isDiamondPlate });
+  const plate = plateSvg({ x: 0, y: 0 }, 'A', '#fff', { flat: true, holes, black: true, diamond: isDiamondPlate, theta });
   return `<svg viewBox="-3 -3 33.4 47.7" width="112" height="160" xmlns="http://www.w3.org/2000/svg">${plate}</svg>`;
 }
 
@@ -1878,9 +2050,9 @@ function renderBreakdown() {
       const first = mine[0] || { code: 3 };
       const digits = digitsOf(first.code);
       const theta = (b.pat || '').match(/([A-Z]+)([12])$/); // "T8 B2" -> B, 2
-      const roleName = ROLE_FULL_NAME[first.lbl] || 'Channel Plate';
+      const roleName = ROLE_FULL_NAME[roleLabel(first)] || 'Channel Plate';
       html += `<div class="bdc"><div class="bdt">Plate ${roman(index + 1)}</div>`
-        + breakdownPlatePicture(digits, first.lbl === 'End II')
+        + breakdownPlatePicture(digits, roleLabel(first) === 'End II', patternTheta(b.pat))
         + `<div class="bdn">${roleName}</div>`
         + (theta ? thetaLine(+theta[2], theta[1] + theta[2]) : '')
         + `<div class="bdq">${esc(digits)} &middot; code ${pad(first.code)} &middot; x${b.qty}</div>`
@@ -1901,7 +2073,7 @@ function renderBreakdown() {
     const digits = b.holeStr || '????';
     const theta = thetaOf(b);
     html += `<div class="bdc"><div class="bdt">Plate ${esc(b.name)}</div>`
-      + breakdownPlatePicture(b.holeStr || '', b.fn === 'EP2')
+      + breakdownPlatePicture(b.holeStr || '', b.fn === 'EP2', theta && theta.lvl)
       + `<div class="bdn">${roleName}</div>`
       + (theta ? thetaLine(theta.lvl, theta.pre + theta.lvl) : '')
       + `<div class="bdq">${esc(digits)} &middot; code ${pad(first.code)} &middot; x${b.qty}</div></div>`;
@@ -1919,8 +2091,28 @@ function letterOptions(current) {
   return `<option${current === 'A' ? ' selected' : ''}>A</option><option${current === 'B' ? ' selected' : ''}>B</option>`;
 }
 
-function codeOptions(current) {
-  return CODES.map((c) => `<option value="${c}"${c === current ? ' selected' : ''}>${codeLabel(c)}</option>`).join('');
+/**
+ * The plate-type dropdown, grouped by category. Turning plates are channel plates (same punch codes)
+ * that get the "Turning" label; their option value is the code followed by "t", e.g. "4t".
+ */
+function codeOptions(current, turning) {
+  const option = (c) => `<option value="${c}"${c === current && !turning ? ' selected' : ''}>${codeLabel(c)}</option>`;
+  const group = (label, codes) => `<optgroup label="${label}">${codes.map(option).join('')}</optgroup>`;
+  const ofFunction = (fn) => CODES.filter((c) => codeParts(c).fn === fn);
+  const turningOption = (c) => {
+    const text = codeLabel(c).replace(' - Channel - ', ' - Turning - ');
+    return `<option value="${c}t"${c === current && turning ? ' selected' : ''}>${text}</option>`;
+  };
+  return group('End Plate II', ofFunction('EP2'))
+    + group('Channel plates', ofFunction('CP'))
+    + `<optgroup label="Turning plates">${ofFunction('CP').map(turningOption).join('')}</optgroup>`
+    + group('End Plate I', ofFunction('EP1'))
+    + group('Transition plates', ofFunction('TRA'));
+}
+
+/** Read a dropdown value back: "4" -> {code:4, turning:false}, "4t" -> {code:4, turning:true}. */
+function parseCodeChoice(value) {
+  return { code: parseInt(value, 10), turning: /t$/.test(value) };
 }
 
 function renderEditBar() {
@@ -1936,10 +2128,12 @@ function renderEditBar() {
     bar.innerHTML = '<span class="sub" style="margin:0">Click any plate to change its code or A/B. Arrow keys step along the strip.</span>' + controls;
   } else {
     const plate = S.plates[selected - 1];
-    bar.innerHTML = `<b>Plate ${selected}</b><select id="ecode">${codeOptions(plate.code)}</select><select id="elet">${letterOptions(plate.letter)}</select>`
+    bar.innerHTML = `<b>Plate ${selected}</b><select id="ecode">${codeOptions(plate.code, plate.turning)}</select><select id="elet">${letterOptions(plate.letter)}</select>`
+      + `<select id="etheta" title="Theta (sets the chevron angle)"><option value=""${plate.theta ? '' : ' selected'}>&Theta; ?</option><option value="1"${plate.theta === 1 ? ' selected' : ''}>Low &Theta;</option><option value="2"${plate.theta === 2 ? ' selected' : ''}>High &Theta;</option></select>`
       + '<button class="sec" id="eprev">&lt;</button><button class="sec" id="enext">&gt;</button>'
       + `<span class="sub" style="margin:0">${esc(plate.src)}</span>` + controls;
-    $('ecode').onchange = (e) => { plate.code = +e.target.value; plate.unk = false; render(); };
+    $('ecode').onchange = (e) => { Object.assign(plate, parseCodeChoice(e.target.value), { unk: false }); render(); };
+    $('etheta').onchange = (e) => { plate.theta = e.target.value ? +e.target.value : undefined; render(); };
     $('elet').onchange = (e) => { plate.letter = e.target.value; plate.unk = false; render(); };
     $('eprev').onclick = () => selectPlate(selected - 1);
     $('enext').onclick = () => selectPlate(selected + 1);
@@ -2016,9 +2210,9 @@ function renderNotes() {
 function renderTable() {
   let html = '<tr><th>#</th><th>Code</th><th>A/B</th><th>From PLA</th></tr>';
   S.plates.forEach((p, i) => {
-    const changed = p.code + p.letter !== S.orig[i];
+    const changed = p.code + p.letter + (p.turning ? 't' : '') !== S.orig[i];
     html += `<tr class="${changed ? 'chg' : ''}"><td>${i + 1}${p.added ? '*' : ''}</td>`
-      + `<td><select data-i="${i}" data-k="code">${codeOptions(p.code)}</select></td>`
+      + `<td><select data-i="${i}" data-k="code">${codeOptions(p.code, p.turning)}</select></td>`
       + `<td><select data-i="${i}" data-k="letter">${letterOptions(p.letter)}</select></td>`
       + `<td class="src">${esc(p.src)}${p.unk ? ' ?' : ''}</td></tr>`;
   });
@@ -2049,7 +2243,7 @@ function renderPanel() {
   fillSelect($('hout'), PORT_NAMES, S.flow.hot.o);
   fillSelect($('cin'), PORT_NAMES, S.flow.cold.i);
   fillSelect($('cout'), PORT_NAMES, S.flow.cold.o);
-  fillSelect($('rcode'), CODES, 3, codeLabel);
+  $('rcode').innerHTML = codeOptions(3, false);
   $('rb').value = S.plates.length;
 }
 
@@ -2172,9 +2366,10 @@ function pdfEscape(t) {
 
 /**
  * Build the PDF file by hand (no library).
- * Layout: landscape Letter (792 x 612 pt); each page holds one slice of the strip as a JPEG,
- * cut on a plate boundary. Page 1 also gets the key (legend) under the strip.
- * Objects: 1 catalog, 2 page tree, 3/4 fonts, then page + content + image (+ legend image) per page.
+ * Layout: landscape Letter (792 x 612 pt). The strip is cut on plate boundaries into ROWS
+ * (like the old paper charts), and the rows are stacked on each page, PDF_PAGE.rowsPerPage per page.
+ * Page 1 also gets the key (legend) in the top-right corner.
+ * Objects: 1 catalog, 2 page tree, 3/4 fonts, then page + content + row images (+ key image) per page.
  */
 async function makePdf(el) {
   const box = el.viewBox.baseVal;
@@ -2182,45 +2377,128 @@ async function makePdf(el) {
   const H = box.height;
   const PAGE_W = 792;
   const PAGE_H = 612;
-  const MARGIN = 36;
-  const POINTS_PER_UNIT = 1.5; // size of the strip on paper
+  const { margin: MARGIN, slotsPerRow, rowsPerPage, keyScale, rowGap: ROW_GAP, breakArrowSize } = PDF_PAGE;
+  const TOP = 30;              // space above the title
+  const BOTTOM = 36;           // space kept free at the bottom (page number)
   const PIXELS_PER_UNIT = 5;   // image resolution
-
-  // ---- Cut the strip into slices that each fit on one page ----
-  const platesPerPage = Math.floor((PAGE_W - 2 * MARGIN) / POINTS_PER_UNIT / 36) * 36;
-  const cuts = [0];
-  let x = 72 - 4.5 + platesPerPage;
-  while (x < W - 40) {
-    cuts.push(x);
-    x += platesPerPage;
+  const usableW = PAGE_W - 2 * MARGIN;
+ 
+  // ---- Cut the strip into rows: the same number of plate slots in every row, so the columns line up ----
+  // (row 1 starts with the frame plate, so its first plate lines up with the first plate of row 2 ...)
+  const LEFT = 34;           // room left of a row's first slot (S4/S1 labels on row 1, line stubs on the others)
+  const PLATE_RIGHT = 28.5;  // just past the right edge of a plate
+  const RIGHT_STUB = 28;     // flow-line stub drawn past the last plate of a row
+  const slots = [];
+  S.slotX.forEach((x, item) => { if (x != null) slots.push({ item, x }); });
+  // Short view: the "repeats N pairs" label is wider than a plate, so never start or end a row on a slot that carries one.
+  const { repOf } = S.short ? findRepeatRuns(S.plates) : { repOf: {} };
+  const hasMarker = (slot) => !!(slot && repOf[slot.item] && repOf[slot.item].first);
+  const groups = [];
+  for (let k = 0; k < slots.length;) {
+    let take = Math.min(slotsPerRow, slots.length - k);
+    while (take > 2 && k + take < slots.length && (hasMarker(slots[k + take - 1]) || hasMarker(slots[k + take]))) take--;
+    groups.push(slots.slice(k, k + take));
+    k += take;
   }
-  cuts.push(W);
-  const pageCount = cuts.length - 1;
-
+  const geo = groups.map((group, r) => {
+    const first = group[0];
+    const last = group[group.length - 1];
+    const isLast = r === groups.length - 1;
+    return {
+      first,
+      last,
+      isFirst: r === 0,
+      isLast,
+      left: Math.max(0, first.x - LEFT),
+      right: isLast ? Math.min(W, last.x + 68) : last.x + PLATE_RIGHT + RIGHT_STUB, // last row also holds the pressure plate and its T labels
+    };
+  });
+  const PPU = Math.min(...geo.map((g) => usableW / (g.right - g.left))); // one scale for every row
+ 
+  // ---- Trim each row to the part that actually has drawing in it, so rows can sit close together ----
+  const probe = await svgToCanvas(svgText(el, 0, 0, W, H, W, H), W, H); // 1 pixel per drawing unit
+  const pixels = probe.getContext('2d').getImageData(0, 0, probe.width, probe.height).data;
+  const inkRange = (x0, x1) => {
+    let first = probe.height;
+    let last = 0;
+    for (let y = 0; y < probe.height; y++) {
+      for (let x = Math.floor(x0); x < Math.min(probe.width, Math.ceil(x1)); x++) {
+        const k = (y * probe.width + x) * 4;
+        if (pixels[k] < 245 || pixels[k + 1] < 245 || pixels[k + 2] < 245) {
+          if (y < first) first = y;
+          if (y > last) last = y;
+          break;
+        }
+      }
+    }
+    return [Math.max(0, first - 4), Math.min(H, last + 4)];
+  };
+ 
   // ---- The key image for page 1 ----
   let legendImage = null;
   const legendSvg = document.querySelector('#legendbox svg');
   if (legendSvg) {
     const clone = legendSvg.cloneNode(true);
     const vb = legendSvg.viewBox.baseVal;
-    const w = vb.width * PIXELS_PER_UNIT * 0.8;
-    const h = vb.height * PIXELS_PER_UNIT * 0.8;
+    const w = vb.width * keyScale * 6; // 6 pixels per point
+    const h = vb.height * keyScale * 6;
     clone.setAttribute('width', w);
     clone.setAttribute('height', h);
     if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     const canvas = await svgToCanvas(new XMLSerializer().serializeToString(clone), w, h);
-    legendImage = { data: canvas.toDataURL('image/jpeg', 0.93), w: canvas.width, h: canvas.height, pw: vb.width * 0.8, ph: vb.height * 0.8 };
+    legendImage = { data: canvas.toDataURL('image/jpeg', 0.93), w: canvas.width, h: canvas.height, pw: vb.width * keyScale, ph: vb.height * keyScale };
   }
-
-  // ---- One JPEG per page ----
+ 
+  // ---- One JPEG per row ----
+  // At a row break the flow lines are redrawn as stubs with arrowheads, in the direction the fluid flows:
+  // the end of one row and the start of the next both show the line carrying on.
+  const joinsBetween = (a, b) => (S.joins || []).filter((j) => j.prev === a.item && j.i === b.item);
+  const lineSvg = (x1, x2, j) => `<line x1="${x1}" y1="${j.y}" x2="${x2}" y2="${j.y}" stroke="${j.color}" stroke-width="${FLOW_LINE_WIDTH}"/>`;
+  const rows = [];
+  for (let r = 0; r < geo.length; r++) {
+    const g = geo[r];
+    const w = g.right - g.left;
+    const [y0, y1] = inkRange(g.isFirst ? g.left : g.first.x, g.isLast ? g.right : g.last.x + PLATE_RIGHT);
+    const h = y1 - y0;
+    let extra = '';
+    if (!g.isFirst) { // start of a row: hide the end of the previous row, draw the incoming stubs
+      const edge = g.first.x - 0.5;
+      extra += `<rect x="${g.left - 1}" y="${y0 - 1}" width="${edge - g.left + 1}" height="${h + 2}" fill="#fff"/>`;
+      joinsBetween(geo[r - 1].last, g.first).forEach((j) => {
+        extra += lineSvg(g.left, edge, j) + arrow(g.left + 12, j.y, j.dir, j.color, breakArrowSize);
+      });
+    }
+    if (!g.isLast) { // end of a row: hide the start of the next row, draw the outgoing stubs
+      const edge = g.last.x + PLATE_RIGHT;
+      extra += `<rect x="${edge}" y="${y0 - 1}" width="${g.right - edge + 2}" height="${h + 2}" fill="#fff"/>`;
+      joinsBetween(g.last, geo[r + 1].first).forEach((j) => {
+        extra += lineSvg(edge, g.right, j) + arrow(g.right - 12, j.y, j.dir, j.color, breakArrowSize);
+      });
+    }
+    const svg = svgText(el, g.left, y0, w, h, w * PIXELS_PER_UNIT, h * PIXELS_PER_UNIT).replace(/<\/svg>\s*$/, extra + '</svg>');
+    const canvas = await svgToCanvas(svg, w * PIXELS_PER_UNIT, h * PIXELS_PER_UNIT);
+    rows.push({ data: canvas.toDataURL('image/jpeg', 0.93), w: canvas.width, h: canvas.height, pw: w * PPU, ph: h * PPU });
+  }
+ 
+  // ---- Deal the rows out to pages: up to rowsPerPage per page, and only if they fit ----
+  const headerBottom = TOP + 44; // title + two subtitle lines
+  const firstTop = Math.max(headerBottom, legendImage ? TOP + legendImage.ph : 0) + 6; // page 1: key sits beside the title
+  const laterTop = headerBottom + 6;
   const pages = [];
-  for (let i = 0; i < pageCount; i++) {
-    const x0 = cuts[i];
-    const w = cuts[i + 1] - x0;
-    const canvas = await svgToCanvas(svgText(el, x0, 0, w, H, w * PIXELS_PER_UNIT, H * PIXELS_PER_UNIT), w * PIXELS_PER_UNIT, H * PIXELS_PER_UNIT);
-    pages.push({ data: canvas.toDataURL('image/jpeg', 0.93), w: canvas.width, h: canvas.height, pw: w * POINTS_PER_UNIT, ph: H * POINTS_PER_UNIT });
-  }
-
+  let page = null;
+  let y = 0;
+  rows.forEach((row) => {
+    const needNew = !page || page.rows.length >= rowsPerPage || y + row.ph > PAGE_H - BOTTOM;
+    if (needNew) {
+      page = { rows: [] };
+      pages.push(page);
+      y = pages.length === 1 ? firstTop : laterTop;
+    }
+    page.rows.push({ ...row, y });
+    y += row.ph + ROW_GAP;
+  });
+  const pageCount = pages.length;
+ 
   // ---- Low-level PDF writing helpers ----
   const encoder = new TextEncoder();
   const chunks = [];
@@ -2241,57 +2519,59 @@ async function makePdf(el) {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return bytes;
   };
-
+  const imageObject = (id, img) => streamObject(id, `/Type /XObject /Subtype /Image /Width ${img.w} /Height ${img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, base64Bytes(img.data));
+ 
   putText('%PDF-1.4\n');
-
+ 
   // Object numbers for every page.
-  const ids = [];
   let nextId = 5;
-  for (let i = 0; i < pageCount; i++) {
-    ids.push({ page: nextId++, content: nextId++, image: nextId++, legend: i === 0 && legendImage ? nextId++ : 0 });
-  }
-
+  const ids = pages.map((pg, i) => ({
+    page: nextId++,
+    content: nextId++,
+    legend: i === 0 && legendImage ? nextId++ : 0,
+    rows: pg.rows.map(() => nextId++),
+  }));
+ 
   object(1, '<< /Type /Catalog /Pages 2 0 R >>');
   object(2, `<< /Type /Pages /Kids [${ids.map((o) => o.page + ' 0 R').join(' ')}] /Count ${pageCount} >>`);
   object(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   object(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-
-  // Page header text.
+ 
+  // Page header text (the same on every page).
   const info = S.info || {};
   const title = (info.model || 'Plate layout') + (info.projectRef ? '  -  ' + info.projectRef : '');
-  const subtitle = [
-    info.lineRef,
-    info.grouping && 'Grouping ' + info.grouping,
+  const subtitle1 = [info.lineRef, info.grouping && 'Grouping ' + info.grouping].filter(Boolean).join('   |   ');
+  const subtitle2 = [
     `Hot ${S.flow.hot.i} > ${S.flow.hot.o}   Cold ${S.flow.cold.i} > ${S.flow.cold.o}`,
     S.plates.length + ' plates',
     S.short ? 'Short view' : 'Full view',
-  ].filter(Boolean).join('   |   ');
-
-  for (let i = 0; i < pageCount; i++) {
+  ].join('   |   ');
+ 
+  pages.forEach((pg, i) => {
     const id = ids[i];
-    const pg = pages[i];
-    const imageTop = PAGE_H - 70;
-    const imageBottom = imageTop - pg.ph;
-
-    let content = `BT /F2 13 Tf ${MARGIN} ${PAGE_H - 40} Td (${pdfEscape(title)}) Tj ET\n`
-      + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - 54} Td (${pdfEscape(subtitle)}) Tj ET\n`
-      + `q ${pg.pw.toFixed(2)} 0 0 ${pg.ph.toFixed(2)} ${MARGIN} ${imageBottom.toFixed(2)} cm /Im1 Do Q\n`;
-    let xobjects = `/Im1 ${id.image} 0 R`;
-    if (i === 0 && legendImage) {
-      const legendBottom = imageBottom - 16 - legendImage.ph;
-      content += `q ${legendImage.pw.toFixed(2)} 0 0 ${legendImage.ph.toFixed(2)} ${MARGIN} ${legendBottom.toFixed(2)} cm /Im2 Do Q\n`;
-      xobjects += ` /Im2 ${id.legend} 0 R`;
-    }
-    content += `BT /F1 8 Tf ${PAGE_W - MARGIN - 90} 22 Td (Page ${i + 1} of ${pageCount}) Tj ET\n`;
-
-    object(id.page, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${id.content} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << ${xobjects} >> >> >>`);
-    streamObject(id.content, '', encoder.encode(content));
-    streamObject(id.image, `/Type /XObject /Subtype /Image /Width ${pg.w} /Height ${pg.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, base64Bytes(pg.data));
+    let content = `BT /F2 13 Tf ${MARGIN} ${PAGE_H - TOP - 10} Td (${pdfEscape(title)}) Tj ET\n`
+      + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - TOP - 24} Td (${pdfEscape(subtitle1)}) Tj ET\n`
+      + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - TOP - 36} Td (${pdfEscape(subtitle2)}) Tj ET\n`;
+    let xobjects = '';
+ 
     if (id.legend) {
-      streamObject(id.legend, `/Type /XObject /Subtype /Image /Width ${legendImage.w} /Height ${legendImage.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, base64Bytes(legendImage.data));
+      const keyX = PAGE_W - MARGIN - legendImage.pw;
+      content += `q ${legendImage.pw.toFixed(2)} 0 0 ${legendImage.ph.toFixed(2)} ${keyX.toFixed(2)} ${(PAGE_H - TOP - legendImage.ph).toFixed(2)} cm /Key Do Q\n`;
+      xobjects += `/Key ${id.legend} 0 R `;
     }
-  }
-
+    pg.rows.forEach((row, k) => {
+      const bottomY = PAGE_H - row.y - row.ph; // PDF y runs upwards from the bottom of the page
+      content += `q ${row.pw.toFixed(2)} 0 0 ${row.ph.toFixed(2)} ${MARGIN} ${bottomY.toFixed(2)} cm /R${k} Do Q\n`;
+      xobjects += `/R${k} ${id.rows[k]} 0 R `;
+    });
+    content += `BT /F1 8 Tf ${PAGE_W - MARGIN - 50} 22 Td (Page ${i + 1} of ${pageCount}) Tj ET\n`;
+ 
+    object(id.page, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${id.content} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << ${xobjects}>> >> >>`);
+    streamObject(id.content, '', encoder.encode(content));
+    if (id.legend) imageObject(id.legend, legendImage);
+    pg.rows.forEach((row, k) => imageObject(id.rows[k], row));
+  });
+ 
   // Cross-reference table and trailer.
   const xrefStart = position;
   putText(`xref\n0 ${nextId}\n0000000000 65535 f \n`);
@@ -2313,8 +2593,8 @@ function applyAll() {
   convert(PARSED);
   // Options that only make sense for the new format are hidden for old-format files.
   $('rules').style.display = S.oldfmt ? 'none' : '';
-  $('p3h').textContent = S.oldfmt ? 'Source PLA (for eyeballing)' : 'Source page 3 (for eyeballing)';
-  $('p3s').textContent = S.oldfmt ? 'Show the full PLA' : 'Show plate sequence from PLA';
+  $('p3h').textContent = S.oldfmt ? 'Source Plate Sequence - Full PLA ' : 'Source Plate Sequence - PLA Page';
+  $('p3s').textContent = S.oldfmt ? 'Show/Hide the full PLA' : 'Show/Hide plate sequence from PLA';
   $('p3img').style.display = S.oldfmt ? 'none' : '';
   $('p3pages').innerHTML = '';
   renderPanel();
@@ -2403,7 +2683,7 @@ $('tbl').addEventListener('change', (e) => {
   const t = e.target;
   if (!t.dataset.k) return;
   const plate = S.plates[+t.dataset.i];
-  if (t.dataset.k === 'code') plate.code = +t.value;
+  if (t.dataset.k === 'code') Object.assign(plate, parseCodeChoice(t.value));
   else plate.letter = t.value;
   plate.unk = false;
   render();
@@ -2413,10 +2693,11 @@ $('tbl').addEventListener('change', (e) => {
 $('rapply').addEventListener('click', () => {
   const from = +$('ra').value;
   const to = +$('rb').value;
-  const code = +$('rcode').value;
+  const choice = parseCodeChoice($('rcode').value);
   const letter = $('rlet').value;
   for (let i = Math.max(1, from); i <= Math.min(to, S.plates.length); i++) {
-    S.plates[i - 1].code = code;
+    S.plates[i - 1].code = choice.code;
+    S.plates[i - 1].turning = choice.turning;
     S.plates[i - 1].letter = letter;
     S.plates[i - 1].unk = false;
   }
@@ -2452,6 +2733,8 @@ window.__T = { CPORT: DIGIT_TO_CORNER, findBase, digitsOf, readPdf, parseOld };
 
 <!-- ==========================================================================
      THIRD-PARTY CODE - do not edit below this line.
+     Everything from here down is the pdf.js library (Mozilla), used to read PDFs, plus the tab icon.
+     The long lines are normal. In VS Code you can scroll past them or fold this section.
      ========================================================================== -->
 <script>/**
  * @licstart The following is the entire license notice for the
