@@ -207,6 +207,7 @@ tr.chg td {
   border-radius: 10px;
   padding: 12px 14px;
   margin-top: 12px;
+  margin-bottom: 12px;
 }
 .bdh {
   font-weight: 700;
@@ -280,6 +281,19 @@ tr.chg td {
           </div>
 
           <div class="panel">
+            <b style="font-size: 13px">Export current layout</b>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
+              <button id="savesvg">SVG</button>
+              <button id="savepng">PNG</button>
+              <button id="savepdf">PDF</button>
+            </div>
+            <div class="sub" id="expmsg" style="margin-top: 6px">
+              Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape
+              Letter pages with the key on page 1.
+            </div>
+          </div>
+
+          <div class="panel">
             <h2>Flow Port Numbers</h2>
             <div class="flowgrid">
               <span></span><b>In</b><b>Out</b>
@@ -293,16 +307,20 @@ tr.chg td {
           </div>
 
           <div class="panel">
-            <b style="font-size: 13px">Export current layout</b>
-            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
-              <button id="savesvg">SVG</button>
-              <button id="savepng">PNG</button>
-              <button id="savepdf">PDF</button>
+            <h2>Plates</h2>
+            <!-- Bulk edit: set a range of plates to one code and letter -->
+            <div class="row">
+              <span>Rows</span>
+              <input id="ra" type="number" min="1" value="1" style="width: 56px" /> to
+              <input id="rb" type="number" min="1" value="1" style="width: 56px" />
+              <select id="rcode"></select>
+              <select id="rlet">
+                <option>A</option>
+                <option>B</option>
+              </select>
+              <button class="sec" id="rapply">Apply</button>
             </div>
-            <div class="sub" id="expmsg" style="margin-top: 6px">
-              Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape
-              Letter pages with the key on page 1.
-            </div>
+            <div class="tw"><table id="tbl"></table></div>
           </div>
 
           <!-- New-format files only (hidden for old-format files) -->
@@ -331,23 +349,6 @@ tr.chg td {
               <label><input type="checkbox" id="optNum" checked /> Show plate numbers under plates</label>
             </div>
             <div class="sub">Changing a rule re-runs the conversion and discards manual edits.</div>
-          </div>
-
-          <div class="panel">
-            <h2>Plates</h2>
-            <!-- Bulk edit: set a range of plates to one code and letter -->
-            <div class="row">
-              <span>Rows</span>
-              <input id="ra" type="number" min="1" value="1" style="width: 56px" /> to
-              <input id="rb" type="number" min="1" value="1" style="width: 56px" />
-              <select id="rcode"></select>
-              <select id="rlet">
-                <option>A</option>
-                <option>B</option>
-              </select>
-              <button class="sec" id="rapply">Apply</button>
-            </div>
-            <div class="tw"><table id="tbl"></table></div>
           </div>
 
           <div class="panel">
