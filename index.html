@@ -1837,14 +1837,20 @@ function render() {
 
   // ---- 2. Header flow lines (the long runs along ports 1-4) ----
   // Pieces drawn in front of a plate: from the plate's left edge to the port centre, plus a dot.
+  const flowSpan = (segment) => {
+    const items = segment.entries.concat(segment.exits, segment.ext.map((e) => e.item));
+    return { lo: Math.min(...items), hi: Math.max(...items) };
+  };
+
   function overPieces(segment, color) {
+    const { lo, hi } = flowSpan(segment);
     for (let j = segment.start; j <= segment.end; j++) {
       if (j > M + 1 || !slot[j] || !G.hole(j, segment.p)) continue;
       const cornerX = PORT_X[PORT_TO_CORNER[segment.p]];
       const sx = slot[j].x;
       const ys = portY(j, segment.p);
-      if (j > segment.start || j === 0) over += line(sx + 0.4, ys, sx + cornerX, ys, color);
-      if (j > 0) over += `<circle cx="${sx + cornerX}" cy="${ys}" r="${PORT_DOT_RADIUS}" fill="${color}"/>`;
+      if (j === 0 || (j > segment.start && j > lo && prevVisible[j] < hi)) over += line(sx + 0.4, ys, sx + cornerX, ys, color);
+      if (j > 0 && j >= lo && j <= hi) over += `<circle cx="${sx + cornerX}" cy="${ys}" r="${PORT_DOT_RADIUS}" fill="${color}"/>`;
     }
   }
 
@@ -1852,11 +1858,13 @@ function render() {
     const color = segmentColor(segment);
     if (!color) return;
     overPieces(segment, color);
+    const { lo, hi } = flowSpan(segment);
 
     // Line between each pair of visible neighbours, with an arrowhead in the gap.
     for (let i = segment.start + 1; i <= segment.end; i++) {
       if (!slot[i]) continue;
       const prev = prevVisible[i];
+      if (!(i > lo && prev < hi)) continue;
       const ya = portY(prev, segment.p);
       seg += line(portX(prev, segment.p), ya, portX(i, segment.p), ya, color)
         + arrow(slot[prev].x + 31.5 + segment.dir * 1, ya, segment.dir, color);
@@ -1871,8 +1879,6 @@ function render() {
       const x = portX(i, p);
       if (e.side === 'S') {
         const dir = e.kind === 'i' ? 1 : -1;
-        //seg += line(24, y, x, y, color) + arrow(dir > 0 ? 50 : 44, y, dir, color);
-        //text += txt(2, y + 3, 'S' + p, 9, 'start', '#111', 'font-family="Arial"');
         const x0 = slot[i].x; // the stub and its label are placed relative to the frame plate
         seg += line(x0 - 16, y, x, y, color) + arrow(x0 - 8, y, dir, color);
         text += txt(x0 - 30, y + 3, 'S' + p, 9, 'start', '#111', 'font-family="Arial"');
