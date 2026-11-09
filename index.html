@@ -269,8 +269,57 @@ tr.chg td {
             Drop in an Alfa Laval plate hanging list (PDF) to get the old-style exploded layout as one scrolling
             strip. Works with the new OnePHL format and with the older "Plate Listing" format (full or short).
           </p>
-          <input type="file" id="file" accept="application/pdf" />
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+            <input type="file" id="file" accept="application/pdf" />
+            <button id="genopen" title="Build a layout from a grouping, plate types and nozzles instead of reading a PLA">Build PLA &#9662;</button>
+          </div>
           <div id="status" class="sub" style="margin-top: 8px"></div>
+          <div id="genpanel" style="display: none; margin-top: 10px; border-top: 1px solid #ddd; padding-top: 8px">
+            <div class="row"><input id="genname" type="text" placeholder="Unit model (optional), e.g. T10-BFG" style="width: 100%" /></div>
+            <div id="genunit" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
+              <select id="genser" title="Unit series" style="height: 28px"></select>
+              <select id="genport" title="Port size (cm)" style="height: 28px"></select>
+              <select id="genpress" title="Pressing depth (sets the theta label, e.g. B1 / B2)" style="height: 28px"></select>
+              <select id="genframe" title="Frame type" style="height: 28px"></select>
+            </div>
+            <div id="genmodes" style="display: flex; gap: 6px; margin: 8px 0">
+              <button data-mode="1" title="Pass * Chan Type">Basic</button>
+              <button data-mode="2" title="Pass * (Chan1 Type1 + Chan2 Type2)">Mixed</button>
+              <button data-mode="3" title="Pass1 * Chan1 + Pass2 * Chan2 Type">Advanced</button>
+              <button data-mode="4" title="Pass * (Chan1 Type1 + Chan2 Type2) + Pass * (Chan1 Type1 + Chan2 Type2); empty or 0 channel boxes are left out">Adv. Mixed</button>
+            </div>
+            <div id="gengrid"></div>
+            <div id="genpreview" class="sub" style="margin: 0 0 8px"></div>
+            <div style="display: flex; align-items: center; gap: 12px">
+              <div class="flowgrid" style="grid-template-columns: auto 76px 76px">
+                <span></span><b>In</b><b>Out</b>
+                <span style="color: #c00; font-weight: 600">Hot</span><select id="genhin" style="width: 76px"></select><select id="genhout" style="width: 76px"></select>
+                <span style="color: #0030d0; font-weight: 600">Cold</span><select id="gencin" style="width: 76px"></select><select id="gencout" style="width: 76px"></select>
+              </div>
+              <svg id="genports" width="58" height="82" viewBox="0 0 58 82" role="img" aria-label="Frame plate port layout: S4 top left, S1 top right, S3 bottom left, S2 bottom right" style="flex: none">
+                <rect x="3" y="3" width="52" height="76" rx="4" fill="#fff" stroke="#555" stroke-width="1.5" />
+                <g font-size="9" font-weight="600" text-anchor="middle" fill="#333" font-family="inherit">
+                  <circle data-port="S4" cx="16" cy="19" r="9" fill="#eef" stroke="#555" /><text data-port-label="S4" x="16" y="22">S4</text>
+                  <circle data-port="S1" cx="42" cy="19" r="9" fill="#eef" stroke="#555" /><text data-port-label="S1" x="42" y="22">S1</text>
+                  <circle data-port="S3" cx="16" cy="63" r="9" fill="#eef" stroke="#555" /><text data-port-label="S3" x="16" y="66">S3</text>
+                  <circle data-port="S2" cx="42" cy="63" r="9" fill="#eef" stroke="#555" /><text data-port-label="S2" x="42" y="66">S2</text>
+                </g>
+              </svg>
+              <svg id="genportsT" width="58" height="82" viewBox="0 0 58 82" role="img" aria-label="Pressure plate port layout: T1 top left, T4 top right, T2 bottom left, T3 bottom right" style="flex: none">
+                <rect x="3" y="3" width="52" height="76" rx="4" fill="#fff" stroke="#555" stroke-width="1.5" />
+                <g font-size="9" font-weight="600" text-anchor="middle" fill="#333" font-family="inherit">
+                  <circle data-port="T1" cx="16" cy="19" r="9" fill="#eef" stroke="#555" /><text data-port-label="T1" x="16" y="22">T1</text>
+                  <circle data-port="T4" cx="42" cy="19" r="9" fill="#eef" stroke="#555" /><text data-port-label="T4" x="42" y="22">T4</text>
+                  <circle data-port="T2" cx="16" cy="63" r="9" fill="#eef" stroke="#555" /><text data-port-label="T2" x="16" y="66">T2</text>
+                  <circle data-port="T3" cx="42" cy="63" r="9" fill="#eef" stroke="#555" /><text data-port-label="T3" x="42" y="66">T3</text>
+                </g>
+              </svg>
+            </div>
+            <div id="gennote" class="sub" style="margin-top: 6px; color: #9a5b00; font-weight: 600"></div>
+            <div class="row" style="margin-top: 8px"><button id="genbuild">Build layout</button></div>
+            <div class="row" style="margin-top: 6px"><button class="sec" id="genfill" title="Fill the boxes above from the PLA that is loaded now, including any plate edits you made">Fill from loaded PLA</button></div>
+            <div id="genmsg" class="sub" style="margin-top: 6px"></div>
+          </div>
         </div>
 
         <!-- Everything below stays hidden until a PDF has been loaded -->
@@ -286,6 +335,7 @@ tr.chg td {
               <button id="savesvg">SVG</button>
               <button id="savepng">PNG</button>
               <button id="savepdf">PDF</button>
+              <button id="savesheet" title="A printable plate hanging list: unit details, plate summary and the plate-by-plate sequence">PLA sheet</button>
             </div>
             <div class="sub" id="expmsg" style="margin-top: 6px">
               Exports whatever view is showing (long or short). SVG and PNG are one wide image; PDF is landscape
@@ -1045,6 +1095,8 @@ function convertNew(parsed) {
   S.blocks = parsed.blocks;
   S.plates = plates;
   S.orig = plates.map((p) => p.code + p.letter + (p.turning ? 't' : ''));
+  S.edited = false;
+  S.baseCounts = null;
   if (plates.some((p) => p.unk)) {
     notes.push(['warn', 'Some plates use a function or hole code I could not interpret; rows marked "?" need checking.']);
   }
@@ -1265,12 +1317,16 @@ function convertOld(parsed) {
   S.blocks = blocks;
   S.plates = plates;
   S.orig = plates.map((p) => p.code + p.letter + (p.turning ? 't' : ''));
+  S.edited = false;
+  S.baseCounts = null;
   S.notes = notes;
 }
 
 /** Load either kind of PLA into the app: converts whatever was parsed into S.plates. */
 function convert(parsed) {
-  if (parsed.old) {
+  if (parsed.generated) {
+    convertBuilt(parsed);
+  } else if (parsed.old) {
     convertOld(parsed);
   } else {
     S.oldfmt = false;
@@ -2006,6 +2062,7 @@ function render() {
   renderNotes();
   renderTable();
   renderBreakdown();
+  renderInfo(); // plate count and grouping follow the edits
 }
 
 
@@ -2051,6 +2108,7 @@ function renderBreakdown() {
   let html = '<div class="bdh">Plate breakdown <span>A position, as punched. Black = holed, white = blind.</span></div><div class="bdg">';
 
   blocks.forEach((b, index) => {
+    if (!b.qty) return; // every plate of this kind was removed
     if (b.old) {
       // ---- Old format: a card per unique plate code number, numbered in order of appearance ----
       const mine = P.filter((p) => p.pla && p.pla.codeNo === b.name);
@@ -2138,10 +2196,14 @@ function renderEditBar() {
     bar.innerHTML = `<b>Plate ${selected}</b><select id="ecode">${codeOptions(plate.code, plate.turning)}</select><select id="elet">${letterOptions(plate.letter)}</select>`
       + `<select id="etheta" title="Theta (sets the chevron angle)"><option value=""${plate.theta ? '' : ' selected'}>&Theta; ?</option><option value="1"${plate.theta === 1 ? ' selected' : ''}>Low &Theta;</option><option value="2"${plate.theta === 2 ? ' selected' : ''}>High &Theta;</option></select>`
       + '<button class="sec" id="eprev">&lt;</button><button class="sec" id="enext">&gt;</button>'
+      + '<button class="sec" id="eadd" title="Add a plate to the right of this one">+ Add plate</button>'
+      + '<button class="sec" id="edel" title="Remove this plate from the layout">Remove plate</button>'
       + `<span class="sub" style="margin:0">${esc(plate.src)}</span>` + controls;
     $('ecode').onchange = (e) => { Object.assign(plate, parseCodeChoice(e.target.value), { unk: false }); render(); };
     $('etheta').onchange = (e) => { plate.theta = e.target.value ? +e.target.value : undefined; render(); };
     $('elet').onchange = (e) => { plate.letter = e.target.value; plate.unk = false; render(); };
+    $('eadd').onclick = () => insertPlateAfter(selected);
+    $('edel').onclick = () => removePlate(selected);
     $('eprev').onclick = () => selectPlate(selected - 1);
     $('enext').onclick = () => selectPlate(selected + 1);
   }
@@ -2192,6 +2254,202 @@ function wireZoom() {
   }
 }
 
+// ---- The grouping as the plates stand now (follows added / removed plates and A/B edits) ----
+
+/** The grouping text split into groups per side: {hot:[{pass, pieces:[{chan, type}]}], cold:[...]}, or null. */
+function parseGrouping(text) {
+  const read = (part) => {
+    const starts = [...part.matchAll(/(\d+)\s*\*\s*\(?/g)];
+    return starts.map((m, i) => {
+      const body = part.slice(m.index + m[0].length, i + 1 < starts.length ? starts[i + 1].index : part.length);
+      const pieces = [...body.matchAll(/(\d+)\s*([A-Za-z]{0,2})/g)].map((x) => ({ chan: +x[1], type: THETA_TYPES.includes(x[2].toUpperCase()) ? x[2].toUpperCase() : '' }));
+      return { pass: +m[1], pieces };
+    }).filter((g) => g.pieces.length);
+  };
+  const halves = String(text || '').trim().split(/\s*\/\s*|\s{2,}/);
+  if (halves.length === 2) {
+    const hot = read(halves[0]);
+    const cold = read(halves[1]);
+    return hot.length && cold.length ? { hot, cold } : null;
+  }
+  const all = read(String(text || ''));
+  if (!all.length || all.length % 2) return null;
+  return { hot: all.slice(0, all.length / 2), cold: all.slice(all.length / 2) };
+}
+
+/** Channels per pass, hot and cold, counted from the plates themselves (plates 2 to the end, split at the turning plates). */
+function plateChannelCounts() {
+  const P = S.plates;
+  const turns = P.map((p, i) => (p.turning ? i + 1 : 0)).filter(Boolean);
+  const counts = { hot: new Array(turns.length + 1).fill(0), cold: new Array(turns.length + 1).fill(0) };
+  const hotColumn = columnOf(+S.flow.hot.i[1]);
+  for (let n = 2; n <= P.length; n++) {
+    counts[P[n - 1].letter === hotColumn ? 'hot' : 'cold'][turns.filter((t) => t < n).length]++;
+  }
+  return counts;
+}
+
+/**
+ * The grouping with the plate edits applied: each pass keeps its plate types and takes the change in channel count.
+ * Returns {text, passes, sides, edited} (or null when the PLA's grouping text can't be read).
+ */
+function currentGrouping() {
+  const info = S.info || {};
+  const base = parseGrouping(info.grouping);
+  if (!base || !S.plates.length || !S.flow) return null;
+  const now = plateChannelCounts();
+  if (!S.baseCounts && !S.edited) S.baseCounts = now;
+  const was = S.baseCounts || now;
+  const expand = (groups) => groups.flatMap((g) => Array.from({ length: g.pass }, () => g.pieces.map((piece) => ({ ...piece }))));
+  const sides = { hot: [], cold: [] };
+  const passes = { hot: [], cold: [] };
+  let edited = false;
+  ['hot', 'cold'].forEach((fluid) => {
+    const old = expand(base[fluid]);
+    const sameShape = old.length === was[fluid].length && now[fluid].length === was[fluid].length;
+    const rebuilt = now[fluid].map((count, k) => {
+      const ref = old[Math.min(k, old.length - 1)].map((piece) => ({ ...piece }));
+      const oldTotal = ref.reduce((a, piece) => a + piece.chan, 0);
+      const total = sameShape ? oldTotal + count - was[fluid][k] : count;
+      let delta = total - oldTotal;
+      if (delta) edited = true;
+      for (let i = ref.length - 1; i >= 0 && delta; i--) {
+        const take = Math.max(delta, -ref[i].chan);
+        ref[i].chan += take;
+        delta -= take;
+      }
+      return ref.filter((piece) => piece.chan > 0);
+    });
+    if (now[fluid].length !== old.length) edited = true;
+    passes[fluid] = rebuilt.map((pieces) => pieces.reduce((a, piece) => a + piece.chan, 0));
+    // merge identical neighbouring passes back into "n*" groups
+    rebuilt.forEach((pieces) => {
+      const key = JSON.stringify(pieces);
+      const last = sides[fluid][sides[fluid].length - 1];
+      if (last && JSON.stringify(last.pieces) === key) last.pass++;
+      else sides[fluid].push({ pass: 1, pieces });
+    });
+  });
+  if (!edited) return { text: info.grouping, passes, sides: base, edited: false };
+  const textOf = (groups) => groups.map((g) => {
+    const body = g.pieces.map((piece) => piece.chan + piece.type).join('+');
+    return `${g.pass}*${g.pieces.length > 1 ? '(' + body + ')' : body}`;
+  }).join(' + ');
+  return { text: `${textOf(sides.hot)}  ${textOf(sides.cold)}`, passes, sides, edited: true };
+}
+
+/** The grouping text to show: the PLA's own, or the edited version once plates have changed. */
+function groupingNow() {
+  const cg = currentGrouping();
+  return cg ? cg.text : ((S.info && S.info.grouping) || '');
+}
+
+// ---- Fill the Build PLA boxes from the layout that is loaded ----
+function fillBuilderFromLayout() {
+  const message = $('genmsg');
+  const cg = currentGrouping();
+  const say = (text, bad) => { message.style.color = bad ? '#b00' : ''; message.textContent = text; };
+  if (!cg || !S.flow) { say('The grouping of this PLA could not be read, so the boxes were left alone.', true); return false; }
+  const { hot, cold } = cg.sides;
+  if (hot.length > 2 || cold.length > 2 || [...hot, ...cold].some((g) => g.pieces.length > 2)) {
+    say('This grouping has more than two groups or more than two channel counts per pass, which the boxes cannot hold.', true);
+    return false;
+  }
+  const single = (groups) => groups.every((g) => g.pieces.length === 1);
+  let mode = 4;
+  if (hot.length === 1 && cold.length === 1) mode = single(hot) && single(cold) ? 1 : 2;
+  else if (hot.length === 2 && cold.length === 2 && single(hot) && single(cold)
+    && hot[0].pieces[0].type === hot[1].pieces[0].type && cold[0].pieces[0].type === cold[1].pieces[0].type) mode = 3;
+  const blank = () => ({ pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' });
+  const fill = (groups) => {
+    const g = blank();
+    const [a, b] = groups;
+    g.pass = a.pass;
+    g.chan = a.pieces[0].chan; g.type = a.pieces[0].type;
+    if (mode === 2) {
+      if (a.pieces[1]) { g.chan2 = a.pieces[1].chan; g.type2 = a.pieces[1].type; }
+    } else if (mode === 3) {
+      g.pass2 = b.pass; g.chan2 = b.pieces[0].chan;
+    } else if (mode === 4) {
+      if (a.pieces[1]) { g.chan2 = a.pieces[1].chan; g.type2 = a.pieces[1].type; }
+      if (b) {
+        g.pass2 = b.pass;
+        g.chan3 = b.pieces[0].chan; g.type3 = b.pieces[0].type;
+        if (b.pieces[1]) { g.chan4 = b.pieces[1].chan; g.type4 = b.pieces[1].type; }
+      }
+    }
+    return g;
+  };
+  GEN.mode = mode;
+  GEN.hot = fill(hot);
+  GEN.cold = fill(cold);
+  renderGenGrid();
+  // nozzles
+  const f = S.flow;
+  const setPort = (id, value) => { if ([...$(id).options].some((o) => o.value === value)) $(id).value = value; };
+  setPort('genhin', f.hot.i);
+  setPort('gencin', f.cold.i);
+  syncOutlets(true);
+  setPort('genhout', f.hot.o);
+  setPort('gencout', f.cold.o);
+  updateFlowNote();
+  // unit model
+  $('genname').value = S.info.model && S.info.model !== 'New layout' ? S.info.model : '';
+  $('genname').dispatchEvent(new Event('input'));
+  updateGenPreview();
+  say('Filled in from the loaded PLA' + (cg.edited ? ' (with your plate edits)' : '') + '.');
+  return true;
+}
+
+// ---- Adding and removing plates by hand ----
+
+/** After the plate list changes: counts, breakdown quantities and the panels that show them. */
+function plateListChanged() {
+  const P = S.plates;
+  if (S.info) S.info.nPlates = P.length;
+  S.edited = true;
+  (S.blocks || []).forEach((b) => {
+    b.qty = b.old ? P.filter((p) => p.pla && p.pla.codeNo === b.name).length
+      : P.filter((p) => typeof p.src === 'string' && p.src.indexOf('Plate ' + b.name + ' ') === 0).length;
+  });
+  renderPanel();
+}
+
+/** A new channel plate (code 03, the other letter) to the right of plate i (1-based). */
+function insertPlateAfter(i) {
+  const P = S.plates;
+  const ref = P[i - 1] || P[0];
+  // Borrow the look of the nearest ordinary channel plate (its theta, and its row in the breakdown).
+  let like = null;
+  for (let d = 0; d < P.length && !like; d++) {
+    for (const k of [i - 1 - d, i - 1 + d]) {
+      const c = P[k];
+      if (c && c.code === 3 && !c.turning && !c.added) { like = c; break; }
+    }
+  }
+  const source = like || ref;
+  const plate = {
+    code: 3, letter: ref.letter === 'A' ? 'B' : 'A', role: 'CP', turning: false, transition: false, unk: false, added: true,
+    old: ref.old, pla: source.pla, theta: source.theta, type: source.type, src: source.src || 'Added by hand',
+  };
+  P.splice(i, 0, plate);
+  S.orig.splice(i, 0, '');
+  S.sel = i + 1;
+  plateListChanged();
+  selectPlate(S.sel);
+}
+
+/** Take plate i (1-based) out of the layout. */
+function removePlate(i) {
+  const P = S.plates;
+  if (P.length <= 3) return; // a unit needs at least the two end plates and one channel
+  P.splice(i - 1, 1);
+  S.orig.splice(i - 1, 1);
+  S.sel = Math.min(i, P.length);
+  plateListChanged();
+  selectPlate(S.sel);
+}
+
 /** Select plate i (1-based), redraw, and scroll it to the middle of the strip. */
 function selectPlate(i) {
   if (i < 1 || i > S.plates.length) return;
@@ -2215,13 +2473,15 @@ function renderNotes() {
 
 /** The plate table: one row per plate with code / A-B dropdowns. Edited rows are highlighted. */
 function renderTable() {
-  let html = '<tr><th>#</th><th>Code</th><th>A/B</th><th>From PLA</th></tr>';
+  let html = '<tr><th>#</th><th>Code</th><th>A/B</th><th>From PLA</th><th></th></tr>';
   S.plates.forEach((p, i) => {
     const changed = p.code + p.letter + (p.turning ? 't' : '') !== S.orig[i];
     html += `<tr class="${changed ? 'chg' : ''}"><td>${i + 1}${p.added ? '*' : ''}</td>`
       + `<td><select data-i="${i}" data-k="code">${codeOptions(p.code, p.turning)}</select></td>`
       + `<td><select data-i="${i}" data-k="letter">${letterOptions(p.letter)}</select></td>`
-      + `<td class="src">${esc(p.src)}${p.unk ? ' ?' : ''}</td></tr>`;
+      + `<td class="src">${esc(p.src)}${p.unk ? ' ?' : ''}</td>`
+      + `<td style="white-space:nowrap"><button class="sec" data-act="add" data-i="${i}" title="Add a plate after plate ${i + 1}" style="padding:0 6px">+</button> `
+      + `<button class="sec" data-act="del" data-i="${i}" title="Remove plate ${i + 1}" style="padding:0 6px">&times;</button></td></tr>`;
   });
   $('tbl').innerHTML = html;
 }
@@ -2235,17 +2495,24 @@ function fillSelect(select, values, current, labelOf) {
 }
 
 /** Fill the Unit panel and the flow-port dropdowns from S. */
-function renderPanel() {
+function renderInfo() {
   const info = S.info;
+  if (!info) return;
+  const cg = currentGrouping();
   const rows = [
     ['Model', info.model],
     ['Project', info.projectRef],
     ['Line', info.lineRef],
-    ['Plates', info.nPlates],
-    ['Grouping', info.grouping],
+    ['Plates', S.plates.length],
+    ['Grouping', cg && cg.edited ? cg.text + '  (edited)' : info.grouping],
     [S.oldfmt ? 'Nozzles' : 'Nozzles (new)', info.flowText],
   ];
   $('info').innerHTML = rows.map(([label, value]) => `<b>${label}</b><span>${esc(value || '-')}</span>`).join('');
+}
+
+function renderPanel() {
+  const info = S.info;
+  renderInfo();
   fillSelect($('hin'), PORT_NAMES, S.flow.hot.i);
   fillSelect($('hout'), PORT_NAMES, S.flow.hot.o);
   fillSelect($('cin'), PORT_NAMES, S.flow.cold.i);
@@ -2547,7 +2814,7 @@ async function makePdf(el) {
   // Page header text (the same on every page).
   const info = S.info || {};
   const title = (info.model || 'Plate layout') + (info.projectRef ? '  -  ' + info.projectRef : '');
-  const subtitle1 = [info.lineRef, info.grouping && 'Grouping ' + info.grouping].filter(Boolean).join('   |   ');
+  const subtitle1 = [info.lineRef, groupingNow() && 'Grouping ' + groupingNow()].filter(Boolean).join('   |   ');
   const subtitle2 = [
     `Hot ${S.flow.hot.i} > ${S.flow.hot.o}   Cold ${S.flow.cold.i} > ${S.flow.cold.o}`,
     S.plates.length + ' plates',
@@ -2589,6 +2856,937 @@ async function makePdf(el) {
 
 
 /* ==========================================================================
+   ## 12 - PLA BUILDER (no PLA needed) and the PLA sheet
+   Builds a plate list from a grouping, the plate types and the four nozzles, then hands it to the
+   same drawing code as a loaded PLA. Nothing is read from a PDF here, so every plate is an ASSUMPTION
+   and the "Checks & assumptions" panel says so. The rules come from the sample PLAs:
+
+     - plate count      = 1 + all channels in the grouping (hot + cold)
+     - plate 1          = End Plate II, open only at the ports of the S nozzles in use
+     - last plate       = End Plate I, open only at the ports of the T nozzles in use
+     - turning plates   = at 1 + the channels of the passes before it (same maths as a PLA grouping);
+                          the header the fluid came in on is blocked, the other one stays open
+     - everything else  = plain channel plate with all four holes (code 03)
+     - letters          = alternate; plate 2 carries the fluid with more channels (hot if they are equal)
+     - theta            = from the plate type of the fluid a plate carries (H, L pure; MH / ML follow the ROUNDUP / ROUNDDOWN split rule per pass)
+   ========================================================================== */
+
+// The two ports of the channel on an A plate and on a B plate: [top header, bottom header].
+const COLUMN_PORTS = { A: [4, 3], B: [1, 2] };
+const columnOf = (port) => (port === 1 || port === 2 ? 'B' : 'A');
+
+// Plate types offered in the builder, and what they mean for the drawing.
+const THETA_TYPES = ['MH', 'ML', 'H', 'L'];
+const THETA_OF_TYPE = { H: 2, MH: 2, L: 1, ML: 1 }; // 1 = Low theta, 2 = High theta
+// Picking a hot-side type fills in the cold side's default (a type and its partner):
+// H pairs with H, L with L, and MH with ML (from the Excel rules).
+const PAIR_TYPE = { '': '', H: 'H', L: 'L', MH: 'ML', ML: 'MH' };
+
+/**
+ * Work out the whole plate list. Returns { error } or { info, flow, plates, blocks, notes, passes, turnAt }.
+ *   spec   { hot: {passes}, cold: {passes}, label }
+ *          passes = one entry per pass, each a list of {chan, type} pieces along that pass, e.g.
+ *          [[{chan:17,type:'MH'}], [{chan:13,type:'MH'}]] is two passes of one piece each
+ *   flow   {hot:{i,o}, cold:{i,o}} nozzle names like 'S1'
+ */
+/**
+ * Do the hot and cold groupings change plate type at the same place in the stack?
+ * Plates alternate hot / cold, so a hot channel and the cold channel next to it share a plate and cannot be two types.
+ * Returns '' when fine (or when there is nothing to compare), otherwise a sentence saying what is wrong and what to try.
+ * sides = {hot:{passes}, cold:{passes}}, each pass a list of {chan, type}.
+ */
+function groupMisalignment(sides) {
+  const flat = (fluid, from) => from[fluid].passes.flat();
+  const total = (fluid, from) => flat(fluid, from).reduce((a, piece) => a + piece.chan, 0);
+  const changesOf = (fluid, from) => {
+    const pieces = flat(fluid, from);
+    const out = [];
+    let n = 0;
+    pieces.forEach((piece, i) => {
+      n += piece.chan;
+      if (i < pieces.length - 1 && pieces[i + 1].type !== piece.type) out.push(n);
+    });
+    return out;
+  };
+  const problems = (from) => {
+    const first = total('hot', from) >= total('cold', from) ? 'hot' : 'cold';
+    const at = (fluid, j) => (fluid === first ? 2 * j - 1 : 2 * j); // position of a fluid's j-th channel along the stack
+    const hot = changesOf('hot', from);
+    const cold = changesOf('cold', from);
+    if (hot.length !== cold.length) return [];
+    return hot.map((h, i) => ({ h, c: cold[i], hotAt: at('hot', h), coldAt: at('cold', cold[i]) })).filter((x) => Math.abs(x.hotAt - x.coldAt) > 1);
+  };
+  const bad = problems(sides);
+  if (!bad.length) return '';
+  const first = total('hot', sides) >= total('cold', sides) ? 'hot' : 'cold';
+  const b = bad[0];
+  // Suggestion: swap the hot and cold channel counts piece by piece.
+  const hotPieces = flat('hot', sides);
+  const coldPieces = flat('cold', sides);
+  let hint = '';
+  if (hotPieces.length === coldPieces.length) {
+    const swapped = {
+      hot: { passes: [hotPieces.map((piece, i) => ({ chan: coldPieces[i].chan, type: piece.type }))] },
+      cold: { passes: [coldPieces.map((piece, i) => ({ chan: hotPieces[i].chan, type: piece.type }))] },
+    };
+    if (!problems(swapped).length) {
+      const text = (pieces) => pieces.map((piece) => piece.chan + (piece.type || '')).join(' + ');
+      hint = ` Try swapping the first channel counts: hot ${text(swapped.hot.passes[0])} and cold ${text(swapped.cold.passes[0])}.`;
+    }
+  }
+  return `The hot and cold groupings do not line up. With ${first} starting, hot's plate type changes after hot channel ${b.h} (channel ${b.hotAt} along the stack) but cold's changes after cold channel ${b.c} (channel ${b.coldAt}). A plate touches one hot and one cold channel, so the two changes have to land within one channel of each other.` + hint;
+}
+
+function buildLayout(spec, flow, title) {
+  const pressing = pressingOfModel(title); // B / P / M ... from the unit model, used to label the thetas (B1 / B2)
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const sides = { hot: spec.hot, cold: spec.cold };
+
+  // ---- Check the grouping ----
+  for (const fluid of ['hot', 'cold']) {
+    const pieces = sides[fluid].passes.flat();
+    if (!pieces.length || pieces.some((p) => !(p.chan >= 1) || p.chan !== Math.floor(p.chan))) {
+      return { error: `Every ${fluid} pass and channel box needs a whole number of 1 or more.` };
+    }
+  }
+  if (sides.hot.passes.length !== sides.cold.passes.length) {
+    return { error: `Hot has ${sides.hot.passes.length} passes and cold has ${sides.cold.passes.length}. They need the same number of passes.` };
+  }
+  const passes = {
+    hot: sides.hot.passes.map((pass) => sum(pass.map((p) => p.chan))),
+    cold: sides.cold.passes.map((pass) => sum(pass.map((p) => p.chan))),
+  };
+  const hotTotal = sum(passes.hot);
+  const coldTotal = sum(passes.cold);
+  if (Math.abs(hotTotal - coldTotal) > 1) {
+    return { error: `Hot has ${hotTotal} channels and cold has ${coldTotal}. Plates alternate hot and cold, so the two can differ by at most 1.` };
+  }
+
+  const misaligned = groupMisalignment(sides);
+  if (misaligned) return { error: misaligned };
+
+  // ---- Check the nozzles ----
+  const portNo = (nozzle) => +nozzle[1];
+  const nozzles = [flow.hot.i, flow.hot.o, flow.cold.i, flow.cold.o];
+  if (new Set(nozzles).size !== 4) return { error: 'Each of the four nozzles needs its own port (no port can be used twice).' };
+  const colOf = { hot: columnOf(portNo(flow.hot.i)), cold: columnOf(portNo(flow.cold.i)) };
+  if (columnOf(portNo(flow.hot.o)) !== colOf.hot) return { error: `Hot in (${flow.hot.i}) and hot out (${flow.hot.o}) have to be a pair that shares a plate channel: ports 1 and 2, or ports 3 and 4.` };
+  if (columnOf(portNo(flow.cold.o)) !== colOf.cold) return { error: `Cold in (${flow.cold.i}) and cold out (${flow.cold.o}) have to be a pair that shares a plate channel: ports 1 and 2, or ports 3 and 4.` };
+  if (colOf.hot === colOf.cold) return { error: 'Hot and cold cannot use the same pair of ports. One fluid takes ports 1 and 2, the other takes ports 3 and 4.' };
+
+  const N = 1 + hotTotal + coldTotal;
+  if (N < 4) return { error: 'That grouping gives fewer than 4 plates.' };
+  const passCount = passes.hot.length;
+
+  // Turning plates: plate 1 + the channels of all the passes before.
+  const turnAt = [];
+  let at = 1;
+  for (let k = 0; k < passCount - 1; k++) {
+    at += passes.hot[k] + passes.cold[k];
+    turnAt.push(at);
+  }
+
+  // Plate 2 carries the fluid with more channels (hot when equal); letters alternate from there.
+  const first = hotTotal >= coldTotal ? 'hot' : 'cold';
+  const second = first === 'hot' ? 'cold' : 'hot';
+  const fluidOf = (n) => (n === 1 ? second : n % 2 === 0 ? first : second); // plate 1 takes the letter of the second fluid
+  const channelNo = (n) => (n % 2 === 0 ? (n - 2) / 2 : (n - 3) / 2); // which of that fluid's channels (plate 1 has none)
+
+  // The plate type of every channel, in order along the stack, for each fluid.
+  const typesOf = {};
+  ['hot', 'cold'].forEach((fluid) => {
+    typesOf[fluid] = [];
+    sides[fluid].passes.forEach((pass) => pass.forEach((piece) => { for (let c = 0; c < piece.chan; c++) typesOf[fluid].push(piece.type); }));
+  });
+
+  // The alternating letters have to give each pass the channel counts that were asked for.
+  const actual = passes.hot.map(() => ({ hot: 0, cold: 0 }));
+  for (let n = 2; n <= N; n++) actual[turnAt.filter((t) => t < n).length][fluidOf(n)]++;
+  for (let k = 0; k < passCount; k++) {
+    if (actual[k].hot !== passes.hot[k] || actual[k].cold !== passes.cold[k]) {
+      return { error: `Pass ${k + 1} cannot have ${passes.hot[k]} hot and ${passes.cold[k]} cold channels: with alternating plates it would get ${actual[k].hot} hot and ${actual[k].cold} cold. Within a pass the two counts can differ by at most 1, and the extra channel has to belong to the fluid that starts that pass.` };
+    }
+  }
+
+  const framePorts = nozzles.filter((n) => n[0] === 'S').map(portNo);
+  const pressurePorts = nozzles.filter((n) => n[0] === 'T').map(portNo);
+
+  // Which ports each turning plate blocks: the header the fluid came in on, then the other one, alternating.
+  const blockedAt = {};
+  turnAt.forEach((plateNo, idx) => {
+    const k = idx + 1; // 1 = the first turning plate along the stack
+    blockedAt[plateNo] = ['hot', 'cold'].map((fluid) => {
+      const inlet = flow[fluid].i;
+      const [top, bottom] = COLUMN_PORTS[colOf[fluid]];
+      const inletPort = portNo(inlet);
+      const stepsFromInlet = inlet[0] === 'S' ? k : passCount - k; // a fluid entering at the pressure end meets the last turn first
+      return stepsFromInlet % 2 === 1 ? inletPort : inletPort === top ? bottom : top;
+    });
+  });
+
+  // ---- One plate at a time ----
+  const plates = [];
+  for (let n = 1; n <= N; n++) {
+    const fluid = fluidOf(n);
+    const letter = colOf[fluid] === 'B' ? 'B' : 'A';
+    let role = 'CP';
+    let open = [1, 2, 3, 4];
+    let turning = false;
+    if (n === 1) { role = 'EP2'; open = framePorts; }
+    else if (n === N) { role = 'EP1'; open = pressurePorts; }
+    else if (blockedAt[n]) { turning = true; open = open.filter((p) => !blockedAt[n].includes(p)); }
+
+    const holed = [0, 0, 0, 0]; // corners as the plate hangs: TL, TR, BL, BR
+    open.forEach((port) => (holed[PORT_TO_CORNER[port]] = 1));
+    const base = findBase(letter === 'A' ? holed : rotate180(holed)); // the code is the A-position pattern
+    // Plate 1 has no channel of its own, so nothing says what its theta is: it keeps the neutral chevron.
+    const type = n === 1 ? undefined : typesOf[fluid][Math.min(channelNo(n), typesOf[fluid].length - 1)];
+    plates.push({ code: CODE_OFFSET[role] + base, letter, role, turning, transition: false, unk: false, type, theta: type ? THETA_OF_TYPE[type] : undefined });
+  }
+
+  // ---- Theta counts for mixed types (the MH / ML rule) ----
+  // Per pass and per group of channels:  MH -> High = ROUNDUP(chan/2), Low = ROUNDDOWN(chan/2)
+  //                                      ML -> High = ROUNDDOWN(chan/2), Low = ROUNDUP(chan/2);  H and L -> all of them.
+  // The plates are given thetas by fluid first; if a pass then has the wrong High/Low split for this rule,
+  // mixed-type plates at the end of that pass are flipped until the split matches.
+  const thetaTarget = passes.hot.map((_, k) => {
+    let high = 0;
+    let low = 0;
+    ['hot', 'cold'].forEach((fluid) => sides[fluid].passes[k].forEach((piece) => {
+      if (!piece.type) return;
+      const up = Math.ceil(piece.chan / 2);
+      const down = Math.floor(piece.chan / 2);
+      if (piece.type === 'MH') { high += up; low += down; }
+      else if (piece.type === 'ML') { high += down; low += up; }
+      else if (piece.type === 'H') high += piece.chan;
+      else low += piece.chan;
+    }));
+    return { high, low };
+  });
+  let thetaFlips = 0;
+  const allTyped = ['hot', 'cold'].every((fluid) => typesOf[fluid].every(Boolean));
+  if (allTyped) {
+    for (let k = 0; k < passCount; k++) {
+      const inPass = plates.map((p, i) => ({ p, n: i + 1 })).filter(({ n }) => n >= 2 && turnAt.filter((t) => t < n).length === k).map(({ p }) => p);
+      let diff = inPass.filter((p) => p.theta === 2).length - thetaTarget[k].high; // > 0: too many High
+      const from = diff > 0 ? 2 : 1;
+      for (let i = inPass.length - 1; i >= 0 && diff !== 0; i--) {
+        const p = inPass[i];
+        if (p.type[0] === 'M' && p.theta === from) { p.theta = 3 - from; diff += diff > 0 ? -1 : 1; thetaFlips++; }
+      }
+    }
+  }
+  // The two end plates are shown as High theta (as in the CAS sheet for an M10-BFG); the rule above covers the channels between them.
+  const thetaTotals = plates.slice(1, -1).reduce((t, p) => { if (p.theta === 2) t.high++; else if (p.theta === 1) t.low++; return t; }, { high: 0, low: 0 });
+  // (a unit whose channels are all L keeps Low end plates, as in the real all-L PLA; real PLAs vary here, so this is flagged as an assumption)
+  const endTheta = allTyped ? (['hot', 'cold'].every((fluid) => typesOf[fluid].every((t) => t === 'L')) ? 1 : 2) : undefined;
+  if (plates.length >= 2 && endTheta) { plates[0].theta = endTheta; plates[plates.length - 1].theta = endTheta; }
+
+  // ---- Group identical plates into "Plate I, II ..." blocks (for the breakdown cards and the sheet) ----
+  const blocks = [];
+  plates.forEach((p) => {
+    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0);
+    let block = blocks.find((b) => b.key === key);
+    if (!block) {
+      block = {
+        key,
+        name: roman(blocks.length + 1),
+        qty: 0,
+        fn: p.turning ? 'TUR' : p.role,
+        holeStr: digitsOf(p.code),
+        // "GEN-M2" is what thetaOf() reads to label the breakdown card (M or H/L, then the theta level).
+        text: `${p.role === 'EP2' ? 'End Plate II' : p.role === 'EP1' ? 'End Plate I' : p.turning ? 'Turning plate' : 'Channel plate'}${p.theta ? ` GEN-${pressing || (p.type ? (p.type[0] === 'M' ? 'M' : p.type) : 'H')}${p.theta}` : ''}`,
+        code: p.code,
+      };
+      blocks.push(block);
+    }
+    block.qty++;
+    p.src = 'Plate ' + block.name + ' ' + block.holeStr;
+  });
+
+  const list = (a) => a.join(' + ');
+  const typeText = (fluid) => [...new Set(typesOf[fluid])].filter(Boolean).join(' / ') || 'not set';
+  const notes = [
+    ['warn', 'Built from the grouping, plate types and nozzles you entered. Nothing here was read from a PLA, so check every plate against the real unit.'],
+    ['warn', `Assumed: ${N} plates (1 + ${hotTotal + coldTotal} channels); plate 1 is End Plate II open at the frame nozzle ports (${framePorts.sort().join(', ') || 'none'}); plate ${N} is End Plate I open at the pressure-plate nozzle ports (${pressurePorts.sort().join(', ') || 'none'}); no transition plate; all other plates are plain channel plates with all four holes.`],
+    ['warn', turnAt.length
+      ? `Assumed: turning plate${turnAt.length > 1 ? 's' : ''} at plate ${turnAt.join(', ')} (from the grouping: hot ${list(passes.hot)}, cold ${list(passes.cold)}), blocking the header each fluid came in on.`
+      : `Assumed: a single pass (hot ${list(passes.hot)}, cold ${list(passes.cold)}), so there is no turning plate.`],
+    ['warn', `Assumed: letters alternate and plate 2 carries ${first} (${first === 'hot' && hotTotal === coldTotal ? 'the channel counts are equal, so hot goes first' : 'the fluid with more channels goes first'}), so hot is on the ${colOf.hot} plates and cold on the ${colOf.cold} plates.`],
+    ['warn', `Assumed: theta follows the plate types you picked (hot ${typeText('hot')}, cold ${typeText('cold')}). H and L give every channel that theta. For mixed types, per pass: MH = High ROUNDUP(channels/2), Low ROUNDDOWN(channels/2); ML = High ROUNDDOWN(channels/2), Low ROUNDUP(channels/2). A blank type leaves the theta unset. The two end plates have no channel type of their own, so both are shown as High theta (Low if every channel is L), as in the CAS sheet for an M10-BFG. Real PLAs vary here, so check them.`
+      + (allTyped ? ` Result: ${thetaTotals.high} High and ${thetaTotals.low} Low channel plates between the end plates (the rule gives ${thetaTarget.reduce((a, t) => a + t.high, 0)} High and ${thetaTarget.reduce((a, t) => a + t.low, 0)} Low over all channels, and the last channel is End Plate I)${thetaFlips ? `; ${thetaFlips} mixed plate${thetaFlips > 1 ? 's were' : ' was'} set to the other theta at the end of a pass to meet the rule, so check which plates those are` : ''}.` : '')],
+  ];
+
+  if (pressing) notes.push(['warn', `Assumed: theta labels use the pressing depth from the unit model (${pressing}), so High theta is ${pressing}2 and Low theta is ${pressing}1.`]);
+  const flowFlag = coCurrentNote(flow, passCount);
+  if (flowFlag) notes.unshift(['warn', flowFlag]);
+
+  return {
+    info: {
+      model: title || 'New layout',
+      projectRef: '',
+      lineRef: '',
+      nPlates: N,
+      grouping: spec.label,
+      flowText: `${flow.hot.i} -> ${flow.hot.o}   ${flow.cold.i} -> ${flow.cold.o}`,
+      passes,
+      turnAt,
+    },
+    flow: { hot: { ...flow.hot }, cold: { ...flow.cold } },
+    plates,
+    blocks,
+    notes,
+  };
+}
+
+/** Put a built layout into the shared state (called by convert() for a built layout). */
+function convertBuilt(parsed) {
+  const r = parsed.result;
+  S.oldfmt = false;
+  S.info = r.info;
+  S.flow = { hot: { ...r.flow.hot }, cold: { ...r.flow.cold } };
+  S.plates = r.plates.map((p) => ({ ...p }));
+  S.blocks = r.blocks;
+  S.orig = S.plates.map((p) => p.code + p.letter + (p.turning ? 't' : ''));
+  S.edited = false;
+  S.baseCounts = null;
+  S.notes = r.notes.slice();
+}
+
+// ---- The Build PLA panel: three ways to describe the grouping ----
+// Mode 1 Basic:    Pass * Chan Type                       -> 1*22MH
+// Mode 2 Mixed:    Pass * (Chan1 Type1 + Chan2 Type2)     -> 1*22MH+17H
+// Mode 3 Advanced: Pass1 * Chan1 + Pass2 * Chan2 Type     -> 1*22+1*17MH
+const GEN = {
+  mode: 1,
+  hot: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },   // every box starts blank
+  cold: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },
+};
+
+// The input boxes for each mode. `sep` is the symbol drawn before a box, `end` after the last one.
+const GEN_FIELDS = {
+  1: [
+    { k: 'pass', label: 'Pass' },
+    { k: 'chan', label: 'Chan', sep: '*' },
+    { k: 'type', label: 'Type', type: true },
+  ],
+  2: [
+    { k: 'pass', label: 'Pass' },
+    { k: 'chan', label: 'Chan1', sep: '*(' },
+    { k: 'type', label: 'Type1', type: true },
+    { k: 'chan2', label: 'Chan2', sep: '+' },
+    { k: 'type2', label: 'Type2', type: true, end: ')' },
+  ],
+  3: [
+    { k: 'pass', label: 'Pass1' },
+    { k: 'chan', label: 'Chan1', sep: '*' },
+    { k: 'pass2', label: 'Pass2', sep: '+' },
+    { k: 'chan2', label: 'Chan2', sep: '*' },
+    { k: 'type', label: 'Type', type: true },
+  ],
+  // Adv. Mixed: two groups, each Pass * (Chan1 Type1 + Chan2 Type2). A blank or 0 channel box is left out.
+  4: [
+    { k: 'pass', label: 'Pass' },
+    { k: 'chan', label: 'Chan1', sep: '*(' },
+    { k: 'type', label: 'Type1', type: true },
+    { k: 'chan2', label: 'Chan2', sep: '+' },
+    { k: 'type2', label: 'Type2', type: true, end: ')' },
+    { k: 'pass2', label: 'Pass', sep: '+' },
+    { k: 'chan3', label: 'Chan1', sep: '*(' },
+    { k: 'type3', label: 'Type1', type: true },
+    { k: 'chan4', label: 'Chan2', sep: '+' },
+    { k: 'type4', label: 'Type2', type: true, end: ')' },
+  ],
+};
+
+/** Adv. Mixed: the groups of one side that have at least one channel box filled in, as {pass, pieces}. */
+function genGroups(g) {
+  const piece = (chan, type) => (chan >= 1 ? { chan, type } : null);
+  return [
+    { pass: g.pass, pieces: [piece(g.chan, g.type), piece(g.chan2, g.type2)].filter(Boolean) },
+    { pass: g.pass2, pieces: [piece(g.chan3, g.type3), piece(g.chan4, g.type4)].filter(Boolean) },
+  ].filter((group) => group.pieces.length);
+}
+
+/** '' when the boxes can be built, otherwise what is missing. */
+function genProblem() {
+  if (GEN.mode === 4) {
+    for (const side of ['hot', 'cold']) {
+      const groups = genGroups(GEN[side]);
+      if (!groups.length) return `Fill in at least one ${side} channel box.`;
+      if (groups.some((group) => !(group.pass >= 1))) return `Every ${side} group that has channels needs a Pass number of 1 or more.`;
+    }
+    return '';
+  }
+  const needed = { 1: ['pass', 'chan'], 2: ['pass', 'chan', 'chan2'], 3: ['pass', 'chan', 'pass2', 'chan2'] }[GEN.mode];
+  return ['hot', 'cold'].every((sd) => needed.every((k) => GEN[sd][k] >= 1)) ? '' : 'Fill in every Pass and Chan box (whole numbers of 1 or more) before building.';
+}
+
+/** One side's passes, from the boxes: [[{chan,type}, ...], ...] (one inner list per pass). */
+function genSidePasses(g, mode) {
+  const repeat = (n, make) => Array.from({ length: Math.max(0, n) }, make);
+  if (mode === 1) return repeat(g.pass, () => [{ chan: g.chan, type: g.type }]);
+  if (mode === 2) return repeat(g.pass, () => [{ chan: g.chan, type: g.type }, { chan: g.chan2, type: g.type2 }]);
+  if (mode === 4) return genGroups(g).flatMap((group) => repeat(group.pass, () => group.pieces.map((piece) => ({ ...piece }))));
+  return repeat(g.pass, () => [{ chan: g.chan, type: g.type }]).concat(repeat(g.pass2, () => [{ chan: g.chan2, type: g.type }]));
+}
+
+/** The grouping as text, e.g. 1*22MH/1*23ML (shown in the panel, the Unit box and the sheet). */
+function genLabel(mode) {
+  const groupText = (g) => genGroups(g).map((group) => {
+    const body = group.pieces.map((piece) => piece.chan + (piece.type || '')).join('+');
+    return `${group.pass}*${group.pieces.length > 1 ? '(' + body + ')' : body}`;
+  }).join('+');
+  const side = (g) => (mode === 4 ? groupText(g) : mode === 1 ? `${g.pass}*${g.chan}${g.type}`
+    : mode === 2 ? `${g.pass}*${g.chan}${g.type}+${g.chan2}${g.type2}`
+    : `${g.pass}*${g.chan}+${g.pass2}*${g.chan2}${g.type}`);
+  return `${side(GEN.hot)}/${side(GEN.cold)}`;
+}
+
+// ---- Unit model: series, port size (cm), pressing depth and frame type, from the Alfa Laval nomenclature sheet ----
+const UNIT_SERIES = ['M', 'T', 'TL', 'MA', 'WG'];
+const UNIT_PORTS = [[3, '<2"'], [5, '2"'], [6, '2"'], [8, '3"'], [10, '4"'], [15, '6"'], [20, '8"'], [25, '10"'], [30, '12"'], [35, '14"'], [40, '16"'], [350, '~13"']];
+const UNIT_PRESSING = [['B', 'B - Narrow channel (~2mm)'], ['P', 'P - Medium depth (~3mm)'], ['M', 'M - Large depth (~4mm)'], ['S', 'S - Widegap (~10mm)'], ['X', 'X - Widegap (~17mm)']];
+const UNIT_FRAMES = [['FM', 'FM - 100 PSIG'], ['FG', 'FG - 150 PSIG'], ['FD', 'FD - 300 PSIG'], ['FS', 'FS - 400 PSIG']];
+
+/** Pressing depth letter from a unit model: "T10-BFG" -> "B", "M6-M" -> "M", "TL10-PFG" -> "P". */
+function pressingOfModel(model) {
+  const m = /^(?:TL|MA|WG|T|M)\d+-([BPMSX])/i.exec(String(model || '').trim());
+  return m ? m[1].toUpperCase() : '';
+}
+
+function parseModel(model) {
+  const m = /^(TL|MA|WG|T|M)(\d+)(?:-([BPMSX])(F[MGDS])?)?$/i.exec(String(model || '').trim());
+  return m ? { series: m[1].toUpperCase(), port: m[2], press: (m[3] || '').toUpperCase(), frame: (m[4] || '').toUpperCase() } : null;
+}
+
+function composeModel() {
+  const part = $('genser').value + $('genport').value;
+  const tail = $('genpress').value + $('genframe').value;
+  return part + (tail ? '-' + tail : '');
+}
+
+function fillUnitSelects() {
+  const blank = (label) => `<option value="">${label}</option>`;
+  $('genser').innerHTML = blank('Series') + UNIT_SERIES.map((v) => `<option>${v}</option>`).join('');
+  $('genport').innerHTML = blank('Port (cm)') + UNIT_PORTS.map(([v, inch]) => `<option value="${v}">${v} cm (${inch})</option>`).join('');
+  $('genpress').innerHTML = blank('Pressing') + UNIT_PRESSING.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  $('genframe').innerHTML = blank('Frame') + UNIT_FRAMES.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  $('genunit').addEventListener('change', () => { $('genname').value = composeModel(); });
+  $('genname').addEventListener('input', () => {
+    const parsed = parseModel($('genname').value);
+    if (!parsed) return;
+    $('genser').value = parsed.series;
+    $('genport').value = UNIT_PORTS.some(([v]) => String(v) === parsed.port) ? parsed.port : '';
+    $('genpress').value = parsed.press;
+    $('genframe').value = parsed.frame;
+  });
+}
+
+/** The grouping text with a live plate count under it (1 + all hot and cold channels). */
+function updateGenPreview() {
+  const ready = !genProblem();
+  let count = '';
+  if (ready) {
+    const total = (sd) => genSidePasses(GEN[sd], GEN.mode).flat().reduce((a, piece) => a + piece.chan, 0);
+    const hot = total('hot');
+    const cold = total('cold');
+    count = `<br><b>Plates: ${1 + hot + cold}</b> (1 + ${hot} hot + ${cold} cold channels)`
+      + (Math.abs(hot - cold) > 1 ? ' <span style="color:#b00">- hot and cold can differ by at most 1</span>' : '');
+  }
+  let align = '';
+  if (ready) {
+    const note = groupMisalignment({ hot: { passes: genSidePasses(GEN.hot, GEN.mode) }, cold: { passes: genSidePasses(GEN.cold, GEN.mode) } });
+    if (note) align = `<br><span style="color:#b00">${esc(note)}</span>`;
+  }
+  $('genpreview').innerHTML = 'Grouping: ' + esc(genLabel(GEN.mode)) + count + align;
+}
+
+function renderGenGrid() {
+  const fields = GEN_FIELDS[GEN.mode];
+  const colour = { hot: ['#d40000', '#900'], cold: ['#0030d0', '#002090'] };
+  const row = (side) => {
+    // Number boxes and type dropdowns share one height so the row looks even.
+    const box = `background:${colour[side][0]};color:#fff;border:1px solid ${colour[side][1]};border-radius:3px;padding:0 4px;font-size:13px;font-family:inherit;line-height:1.2;height:28px;box-sizing:border-box;`;
+    const compact = GEN.mode === 4; // ten boxes per row: narrower boxes, and the row may wrap
+    const numW = compact ? 42 : 52;
+    const selW = compact ? 56 : 68;
+    return `<div style="display:flex;align-items:flex-end;gap:3px;margin-bottom:8px${compact ? ';flex-wrap:wrap' : ''}">` + fields.map((f) => {
+      const sep = f.sep ? `<span style="padding-bottom:5px;font-weight:600">${f.sep}</span>` : '';
+      const input = f.type
+        ? `<select data-side="${side}" data-k="${f.k}" style="${box}width:${selW}px"><option value=""${GEN[side][f.k] === '' ? ' selected' : ''}></option>${THETA_TYPES.map((t) => `<option${GEN[side][f.k] === t ? ' selected' : ''}>${t}</option>`).join('')}</select>`
+        : `<input data-side="${side}" data-k="${f.k}" type="number" min="1" step="1" value="${GEN[side][f.k]}" style="${box}width:${numW}px" />`;
+      const end = f.end ? `<span style="padding-bottom:5px;font-weight:600">${f.end}</span>` : '';
+      return `${sep}<div><div class="sub" style="font-size:11px;margin:0 0 2px">${f.label}</div>${input}</div>${end}`;
+    }).join('') + '</div>';
+  };
+  $('gengrid').innerHTML = row('hot') + row('cold');
+  $('genmodes').querySelectorAll('button').forEach((b) => b.classList.toggle('sec', +b.dataset.mode !== GEN.mode));
+  updateGenPreview();
+  refreshNozzles(); // the pass count may have changed with the mode
+}
+
+// ---- Nozzle boxes: S1-S4 for a single pass, S1-S4 and T1-T4 once there is more than one pass ----
+const SINGLE_PASS_PORTS = ['S1', 'S2', 'S3', 'S4'];
+const NOZZLE_DEFAULT = {
+  single: { genhin: 'S1', genhout: 'S2', gencin: 'S3', gencout: 'S4' }, // the usual single-pass pattern
+  multi: { genhin: 'S1', genhout: 'T1', gencin: 'T4', gencout: 'S4' },
+};
+const PARTNER_PORT = { S1: 'S2', S2: 'S1', S3: 'S4', S4: 'S3' }; // the other port of the same channel
+let genNozzleKind = null;
+
+function genPassCount() {
+  if (GEN.mode === 4) return Math.max(1, genSidePasses(GEN.hot, 4).length);
+  return Math.max(1, (GEN.hot.pass || 0) + (GEN.mode === 3 ? GEN.hot.pass2 || 0 : 0));
+}
+
+/**
+ * A warning when hot and cold run the same way, or '' when they do not.
+ * One pass: ports 1 and 4 are the top headers, 2 and 3 the bottom ones, so fluids entering at a top
+ * header both flow down (and both flow up from a bottom header). Several passes: both fluids entering at
+ * the same end of the unit.
+ */
+function coCurrentNote(flow, passCount) {
+  if (!flow.hot.i || !flow.cold.i) return '';
+  if (passCount <= 1) {
+    const isTop = (nozzle) => nozzle[1] === '1' || nozzle[1] === '4';
+    if (isTop(flow.hot.i) !== isTop(flow.cold.i)) return '';
+    return `Co-current flow: hot (${flow.hot.i} to ${flow.hot.o}) and cold (${flow.cold.i} to ${flow.cold.o}) both flow ${isTop(flow.hot.i) ? 'downward' : 'upward'} through the plates. The usual single-pass pattern is counter-current, for example hot S1 to S2 with cold S3 to S4.`;
+  }
+  if (flow.hot.i[0] !== flow.cold.i[0]) return '';
+  return `Co-current flow: hot (${flow.hot.i}) and cold (${flow.cold.i}) both enter at the ${flow.hot.i[0] === 'S' ? 'frame' : 'pressure-plate'} end of the unit.`;
+}
+
+function updateFlowNote() {
+  const flow = {
+    hot: { i: $('genhin').value, o: $('genhout').value },
+    cold: { i: $('gencin').value, o: $('gencout').value },
+  };
+  $('gennote').textContent = coCurrentNote(flow, genPassCount());
+  paintPortDiagrams(flow);
+}
+
+/** Colour the port diagrams to match the nozzle boxes: dark = In, lighter = Out; red = hot, blue = cold. */
+function paintPortDiagrams(flow) {
+  const paint = { [flow.hot.i]: ['#e60000', '#fff'], [flow.hot.o]: ['#ff9d9d', '#600'], [flow.cold.i]: ['#0000e6', '#fff'], [flow.cold.o]: ['#9d9dff', '#006'] };
+  document.querySelectorAll('#genports circle[data-port], #genportsT circle[data-port]').forEach((c) => {
+    const p = paint[c.dataset.port];
+    c.setAttribute('fill', p ? p[0] : '#eef');
+    const t = c.parentNode.querySelector(`text[data-port-label="${c.dataset.port}"]`);
+    if (t) t.setAttribute('fill', p ? p[1] : '#333');
+  });
+}
+
+/** Offer T ports only for a multi-pass unit; a selection that is no longer offered goes back to its default. */
+/**
+ * Where a fluid leaves, given where it enters and how many passes there are.
+ * An odd number of passes leaves at the same end as it entered, on the other port of the same column (S1 -> S2).
+ * An even number leaves at the other end, on the same port number (S1 -> T1).
+ */
+function outletPort(inlet, passCount) {
+  const port = +inlet[1];
+  const [a, b] = COLUMN_PORTS[columnOf(port)];
+  const partner = port === a ? b : a;
+  return passCount % 2 === 0 ? (inlet[0] === 'S' ? 'T' : 'S') + port : inlet[0] + partner;
+}
+
+/** Out boxes only list the ports at the end the flow must leave from (no S ports when it leaves at T, and the reverse). */
+function syncOutlets(force) {
+  const passCount = genPassCount();
+  [['genhin', 'genhout'], ['gencin', 'gencout']].forEach(([inId, outId]) => {
+    const want = outletPort($(inId).value, passCount);
+    const options = PORT_NAMES.filter((name) => name[0] === want[0]);
+    const select = $(outId);
+    fillSelect(select, options, !force && options.includes(select.value) ? select.value : want);
+  });
+}
+
+let genLastPassCount = 0;
+
+function refreshNozzles() {
+  const kind = genPassCount() > 1 ? 'multi' : 'single';
+  const allowed = kind === 'multi' ? PORT_NAMES : SINGLE_PASS_PORTS;
+  Object.keys(NOZZLE_DEFAULT.single).forEach((id) => {
+    const select = $(id);
+    const keep = genNozzleKind !== null && allowed.includes(select.value);
+    fillSelect(select, allowed, keep ? select.value : NOZZLE_DEFAULT[kind][id]);
+  });
+  // The Out ports follow the In ports and the pass count; a changed pass count puts them back to the matching port.
+  syncOutlets(genNozzleKind === null || kind !== genNozzleKind || genPassCount() !== genLastPassCount);
+  genLastPassCount = genPassCount();
+  genNozzleKind = kind;
+  updateFlowNote();
+}
+
+(function wireBuilder() {
+  fillUnitSelects();
+  renderGenGrid(); // also fills the nozzle boxes
+
+  // Single pass: picking an In port fills in the Out port on the same channel (S1 -> S2, S3 -> S4, S2 -> S1 ...).
+  ['genhin', 'genhout', 'gencin', 'gencout'].forEach((id) => {
+    $(id).addEventListener('change', (e) => {
+      // Hot and cold use opposite ends of the plate: if one fluid is picked on S1/S2 the other defaults to S3/S4, and the reverse.
+      const sideOf = (port) => (port === 'S1' || port === 'S2' ? 'top' : port === 'S3' || port === 'S4' ? 'bottom' : '');
+      const mine = sideOf(e.target.value);
+      if (mine) {
+        const other = id.startsWith('genh') ? ['gencin', 'gencout'] : ['genhin', 'genhout'];
+        const wanted = mine === 'top' ? ['S3', 'S4'] : ['S1', 'S2'];
+        const single = genPassCount() <= 1;
+        if (single) {
+          // Only move the other fluid when it is sitting on the same side.
+          if (sideOf($(other[0]).value) === mine || sideOf($(other[1]).value) === mine) {
+            $(other[0]).value = wanted[0];
+            $(other[1]).value = wanted[1];
+          }
+        } else {
+          // Multi-pass: swap only the ports that clash (S1<->S3, S2<->S4).
+          const swap = { S1: 'S3', S2: 'S4', S3: 'S1', S4: 'S2' };
+          other.forEach((o) => { if (sideOf($(o).value) === mine) $(o).value = swap[$(o).value]; });
+        }
+      }
+      syncOutlets(id === 'genhin' || id === 'gencin'); // a new In port sets its Out port; an Out pick is kept if it is at the right end
+      updateFlowNote();
+    });
+  });
+
+  $('genfill').addEventListener('click', () => { if (S.plates && S.plates.length) fillBuilderFromLayout(); else { $('genmsg').style.color = '#b00'; $('genmsg').textContent = 'No PLA is loaded yet.'; } });
+
+  // The Build PLA button opens and closes the panel.
+  $('genopen').addEventListener('click', () => {
+    const panel = $('genpanel');
+    const open = panel.style.display === 'none';
+    panel.style.display = open ? 'block' : 'none';
+    $('genopen').textContent = open ? 'Build PLA ▴' : 'Build PLA ▾';
+  });
+
+  // The three mode buttons.
+  $('genmodes').addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    if (!button) return;
+    GEN.mode = +button.dataset.mode;
+    renderGenGrid();
+  });
+
+  // Typing in a box or picking a type. Picking a hot type fills in the cold default.
+  const onEdit = (e) => {
+    const side = e.target.dataset.side;
+    const key = e.target.dataset.k;
+    if (!side) return;
+    if (e.target.tagName === 'SELECT') {
+      GEN[side][key] = e.target.value;
+      if (side === 'hot' && e.type === 'change') {
+        GEN.cold[key] = PAIR_TYPE[e.target.value];
+        const partner = $('gengrid').querySelector(`[data-side="cold"][data-k="${key}"]`);
+        if (partner) partner.value = GEN.cold[key];
+      }
+    } else {
+      GEN[side][key] = e.target.value === '' ? '' : (parseInt(e.target.value, 10) || 0);
+      if (side === 'hot' && (key === 'pass' || key === 'pass2' || GEN.mode === 4)) refreshNozzles();
+    }
+    updateGenPreview();
+  };
+  $('gengrid').addEventListener('input', onEdit);
+  $('gengrid').addEventListener('change', onEdit);
+
+  $('genbuild').addEventListener('click', () => {
+    const problem = genProblem();
+    if (problem) {
+      $('genmsg').style.color = '#b00';
+      $('genmsg').textContent = problem;
+      return;
+    }
+    const flow = {
+      hot: { i: $('genhin').value, o: $('genhout').value },
+      cold: { i: $('gencin').value, o: $('gencout').value },
+    };
+    const spec = {
+      hot: { passes: genSidePasses(GEN.hot, GEN.mode) },
+      cold: { passes: genSidePasses(GEN.cold, GEN.mode) },
+      label: genLabel(GEN.mode),
+    };
+    const result = buildLayout(spec, flow, $('genname').value.trim());
+    const message = $('genmsg');
+    if (result.error) {
+      message.style.color = '#b00';
+      message.textContent = result.error;
+      return;
+    }
+    message.style.color = '';
+    message.textContent = 'Layout built.';
+    PARSED = { generated: true, result };
+    $('status').textContent = 'Built a new layout (no PLA loaded)';
+    $('after').style.display = 'block';
+    applyAll();
+  });
+})();
+
+// ---- PLA sheet: a printable plate hanging list for the current layout ----
+
+/** Wrap text to a number of characters per line. */
+function wrapText(text, width) {
+  const lines = [];
+  let line = '';
+  String(text).split(/\s+/).forEach((word) => {
+    if (line && (line + ' ' + word).length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? line + ' ' + word : word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** Write a simple text-only PDF. pages = [[{x, y, size, font:'F1'|'F2'|'F3', text}, ...], ...] on portrait Letter. */
+function makeTextPdf(pages) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const offsets = [];
+  let position = 0;
+  const putText = (t) => { const bytes = encoder.encode(t); chunks.push(bytes); position += bytes.length; };
+  const object = (id, body) => { offsets[id] = position; putText(`${id} 0 obj\n${body}\nendobj\n`); };
+
+  putText('%PDF-1.4\n');
+  const pageIds = pages.map((_, i) => 7 + i * 2);
+  object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  object(2, `<< /Type /Pages /Kids [${pageIds.map((id) => id + ' 0 R').join(' ')}] /Count ${pages.length} >>`);
+  object(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  object(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>');
+  object(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>'); // F4: "Q" is a capital theta
+  pages.forEach((items, i) => {
+    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj ET`).join('\n') + '\n'
+      + `BT /F1 8 Tf 520 24 Td (Page ${i + 1} of ${pages.length}) Tj ET\n`;
+    object(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageIds[i] + 1} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>`);
+    object(pageIds[i] + 1, `<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream`);
+  });
+  const nextId = 7 + pages.length * 2;
+  const xrefStart = position;
+  putText(`xref\n0 ${nextId}\n0000000000 65535 f \n`);
+  for (let k = 1; k < nextId; k++) putText(String(offsets[k]).padStart(10, '0') + ' 00000 n \n');
+  putText(`trailer\n<< /Size ${nextId} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+/** Everything the sheet prints, as plain data (so it can be tested without making a PDF). */
+function plaSheetData() {
+  const P = S.plates;
+  const info = S.info || {};
+  const cg = currentGrouping();
+  const groupingText = cg ? cg.text : (info.grouping || '');
+  const grouping = (info.grouping || '').replace(/\s*[\/|;]\s*/g, '   ');
+  const passes = (cg && cg.edited ? cg.passes : null) || info.passes || readPasses(grouping);
+  const flagged = P.map((p, i) => (p.turning ? i + 1 : 0)).filter(Boolean);
+  const turns = flagged.length ? flagged : (S.edited ? [] : (info.turnAt || turningPositions(grouping) || []));
+  const f = S.flow;
+
+  // Summary rows: one per unique plate code, in order of first appearance.
+  const rows = [];
+  P.forEach((p) => {
+    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0);
+    let row = rows.find((r) => r.key === key);
+    if (!row) {
+      const fn = p.turning ? 'Turning plate' : p.role === 'EP2' || codeParts(p.code).fn === 'EP2' ? 'End Plate II'
+        : p.role === 'EP1' || codeParts(p.code).fn === 'EP1' ? 'End Plate I'
+        : p.role === 'TRA' || p.transition || codeParts(p.code).fn === 'TRA' ? 'Transition plate' : 'Channel plate';
+      row = { key, name: roman(rows.length + 1), fn, code: p.code, digits: digitsOf(p.code), theta: p.theta ? (p.theta === 1 ? 'Low' : 'High') : '-', qty: 0, A: 0, B: 0 };
+      rows.push(row);
+    }
+    row.qty++;
+    row[p.letter]++;
+  });
+
+  return { info, passes, turns, f, rows, P, groupingText, list: plateListRows(P, info, turns, f) };
+}
+
+// ---- The plate-by-plate list, laid out like the CAS plate listing ----
+
+/** Plate pattern text like "M10 B2" for one plate ('' when unknown). */
+function sheetPatternName(p, info) {
+  if (!p.theta) return '';
+  if (PARSED && PARSED.generated) {
+    const pressing = pressingOfModel(info.model);
+    return pressing ? `${String(info.model).split('-')[0]} ${pressing}${p.theta}` : '';
+  }
+  const blocks = S.blocks || [];
+  if (p.old) {
+    const b = blocks.find((x) => x.old && p.pla && x.name === p.pla.codeNo);
+    return b && b.pat ? b.pat : '';
+  }
+  const b = blocks.find((x) => typeof p.src === 'string' && p.src.indexOf('Plate ' + x.name + ' ') === 0);
+  const m = b && (b.text || '').match(/([A-Z0-9]+)-([A-Z]+)([12])\b/);
+  return m ? `${m[1]} ${m[2]}${m[3]}` : '';
+}
+
+/** Flow direction arrow for a fluid on a plate: '<' when it runs from a higher port column to a lower one. */
+function sheetFlowArrow(fluid, plateNo, turns, flow) {
+  const inlet = flow[fluid].i;
+  const port = +inlet[1];
+  const [a, b] = COLUMN_PORTS[columnOf(port)];
+  const partner = port === a ? b : a;
+  const passCount = turns.length + 1;
+  const pass = turns.filter((t) => t < plateNo).length;
+  const stepsFromInlet = inlet[0] === 'S' ? pass : passCount - 1 - pass; // a fluid entering at the pressure end meets the last pass first
+  const [from, to] = stepsFromInlet % 2 === 0 ? [port, partner] : [partner, port];
+  return to < from ? '<' : '>';
+}
+
+const LIST_HEADER = 'Plate '.padEnd(6) + 'Code'.padEnd(6) + 'Punch'.padEnd(8) + 'A/B'.padEnd(5) + 'Position'.padEnd(10)
+  + '1       2       3       4' + '      ' + 'Plate Pattern';
+
+/** One printed row per plate, plus the frame-plate and pressure-plate lines. Each row: {text, theta: 'H'|'L'|''}. */
+function plateListRows(P, info, turns, flow) {
+  const block = (cells, arrows) => {
+    const pair = (a, b, arrow) => (arrow ? a + ' ' + arrow + ' ' + b : a + ' '.repeat(7) + b);
+    return pair(cells[0], cells[1], arrows[0]) + ' '.repeat(7) + pair(cells[2], cells[3], arrows[1]);
+  };
+  const nozzlePorts = flow ? [flow.hot.i, flow.hot.o, flow.cold.i, flow.cold.o] : [];
+  const used = (end) => [1, 2, 3, 4].map((port) => (!flow || nozzlePorts.includes(end + port) ? 'O' : ' '));
+  const rows = [];
+  rows.push({ text: ' '.repeat(6) + '---- FRAME PLATE ----'.padEnd(29) + block(used('S'), ['', '']), theta: '' });
+
+  P.forEach((p, idx) => {
+    const n = idx + 1;
+    const label = roleLabel(p);
+    const position = label === 'End II' ? 'EPII' : label === 'End I' ? 'EPI' : label === 'Trans.' ? 'TRA' : label === 'Turning' ? 'TUR' : label || 'CP';
+    const isEnd = position === 'EPII' || position === 'EPI';
+    const holes = holesOf(p.code, p.letter); // corners as hung: TL, TR, BL, BR
+    const open = [1, 2, 3, 4].map((port) => holes[PORT_TO_CORNER[port]] === 1);
+    const fluid = flow ? (columnOf(+flow.hot.i[1]) === p.letter ? 'hot' : 'cold') : null;
+    const line = fluid === 'hot' ? '--' : '==';
+    const arrow = fluid ? line + sheetFlowArrow(fluid, n, turns, flow) + line : '';
+    const symbol = fluid === 'hot' ? '-' : '='; // a closed port in the plate's own flow column
+    let cells;
+    const arrows = ['', ''];
+    if (isEnd && open.some(Boolean)) {
+      cells = open.map((o) => (o ? 'O' : ' ')); // end plates: O at the open ports only, no flow
+    } else {
+      cells = [1, 2, 3, 4].map((port, k) => {
+        const own = columnOf(port) === p.letter;
+        if (open[k]) return own ? 'U' : 'O';
+        return own ? symbol : ' ';
+      });
+      if (arrow) arrows[p.letter === 'B' ? 0 : 1] = arrow;
+    }
+    const name = sheetPatternName(p, info);
+    const lvl = p.theta === 2 ? 'H' : p.theta === 1 ? 'L' : '';
+    const pattern = lvl ? (name ? name + ' - ' : '') + lvl : '';
+    rows.push({
+      text: String(n).padEnd(6) + pad(p.code).padEnd(6) + digitsOf(p.code).padEnd(8) + p.letter.padEnd(5) + position.padEnd(10)
+        + block(cells, arrows) + (pattern ? '      ' + pattern : ''),
+      theta: lvl,
+    });
+  });
+
+  rows.push({ text: ' '.repeat(6) + '--- PRESSURE PLATE ---'.padEnd(30) + block(used('T'), ['', '']), theta: '' });
+  return rows;
+}
+
+function exportPlaSheet() {
+  if (!S.plates.length) return;
+  const { info, passes, turns, f, rows, P, list, groupingText } = plaSheetData();
+  const built = !!(PARSED && PARSED.generated);
+  const TOP = 750;
+  const BOTTOM = 56;
+  const pages = [];
+  let items = [];
+  let y = TOP;
+  const newPage = () => { items = []; pages.push(items); y = TOP; };
+  const room = (height) => { if (y - height < BOTTOM) newPage(); };
+  const add = (x, size, font, text) => items.push({ x, y, size, font, text });
+  newPage();
+
+  add(45, 16, 'F2', 'PLATE HANGING LIST - DRAFT');
+  y -= 14;
+  add(45, 8, 'F1', built
+    ? 'Built by PLA Visualizer from a grouping and nozzle selection. Not an Alfa Laval document; every plate is an assumption to check.'
+    : 'Re-typed by PLA Visualizer from a loaded PLA, including any manual edits. Not an Alfa Laval document.');
+  y -= 24;
+
+  const detail = [
+    ['Model', info.model || '-'],
+    ['Project ref', info.projectRef || '-'],
+    ['Line ref', info.lineRef || '-'],
+    ['Number of plates', String(P.length)],
+    ['Passes', passes ? `${passes.hot.length}  (hot ${passes.hot.join(' + ')}, cold ${passes.cold.join(' + ')} channels)` : '-'],
+    ['Turning plate at', turns.length ? turns.join(', ') : 'none'],
+  ];
+  detail.forEach(([label, value]) => {
+    add(45, 9, 'F2', label);
+    add(165, 9, 'F1', value);
+    y -= 13;
+  });
+  y -= 6;
+  // Hot side / cold side, like the CAS listing
+  const halves = groupingText.split(/\s*\/\s*|\s{2,}/).filter(Boolean);
+  add(250, 9, 'F2', 'Hot side'); add(370, 9, 'F2', 'Cold side');
+  y -= 13;
+  add(45, 9, 'F2', 'Grouping');
+  if (halves.length === 2) { add(250, 9, 'F1', halves[0]); add(370, 9, 'F1', halves[1]); } else add(250, 9, 'F1', groupingText || '-');
+  y -= 13;
+  add(45, 9, 'F2', 'Nozzle orientation');
+  add(250, 9, 'F1', `${f.hot.i} -> ${f.hot.o}`); add(370, 9, 'F1', `${f.cold.i} -> ${f.cold.o}`);
+  y -= 20;
+  add(45, 8.5, 'F1', 'The plates are assembled with the gasket side facing the frame plate.');
+  y -= 11;
+  add(45, 8.5, 'F1', 'O = port hole sealed with an O-ring.   U = port hole with flow on the gasketed side.');
+  y -= 11;
+  add(45, 8.5, 'F1', '--<-- = direction of the hot (primary) flow.   ==<== = direction of the cold (non-primary) flow.');
+  y -= 22;
+
+  // ---- The plate list (continues over as many pages as it needs) ----
+  const SIZE = 8.4;
+  const CHAR = SIZE * 0.6; // Courier character width
+  const header = () => { add(45, SIZE, 'F3', LIST_HEADER); y -= 13; };
+  room(40);
+  header();
+  list.forEach((row) => {
+    if (y - 11 < BOTTOM) { newPage(); header(); }
+    add(45, SIZE, 'F3', row.text);
+    if (row.theta) add(45 + row.text.length * CHAR, SIZE, 'F4', 'Q'); // Symbol font: Q = theta
+    y -= 11;
+  });
+
+  // ---- Summary (like the Article / Quantity block at the end of the CAS listing) ----
+  y -= 20;
+  room(30 + (rows.length + 2) * 13);
+  add(45, 11, 'F2', 'Plate summary');
+  y -= 16;
+  add(45, 8.5, 'F2', 'Plate'); add(95, 8.5, 'F2', 'Qty'); add(130, 8.5, 'F2', 'Description'); add(240, 8.5, 'F2', 'Punch'); add(290, 8.5, 'F2', 'Code'); add(330, 8.5, 'F2', 'Theta'); add(405, 8.5, 'F2', 'A / B plates');
+  y -= 13;
+  rows.forEach((r) => {
+    add(45, 9, 'F1', 'Plate ' + r.name); add(95, 9, 'F1', String(r.qty)); add(130, 9, 'F1', r.fn);
+    add(240, 9, 'F3', r.digits); add(290, 9, 'F1', pad(r.code)); add(330, 9, 'F1', r.theta);
+    add(405, 9, 'F1', [r.A ? `A x${r.A}` : '', r.B ? `B x${r.B}` : ''].filter(Boolean).join('   '));
+    y -= 13;
+  });
+  add(45, 9, 'F2', 'Total plates: ' + P.length);
+  y -= 13;
+
+  // ---- Assumptions go on their own page at the very end ----
+  if (built) {
+    newPage(); // the assumptions get a page of their own at the very end
+    add(45, 11, 'F2', 'What this draft assumes');
+    y -= 15;
+    const notes = S.notes.filter((n) => n[0] === 'warn').map((n) => n[1]);
+    notes.push('Assumed: the flow columns 1 to 4 are ports S1 to S4. Each channel plate shows U at the two ports of its own column (A plates: 3 and 4, B plates: 1 and 2) with the flow arrow between them, and O at the other column. The flow direction comes from the In and Out ports you chose, and reverses on every pass.');
+    notes.push('Assumed: the symbols follow the CAS listings for an M10-BFG and an M15-MFG (which has a turning plate): a closed port in a plate\'s own flow column is printed as = (cold) or - (hot) with the flow arrow still drawn, a closed port in the other column is left blank, and end plates show O at their open ports only. The frame and pressure plate lines show O at the nozzle ports in use. CAS prints the hot closed port as two dashes where this prints one.');
+    notes.forEach((text) => {
+      const lines = wrapText(text, 105);
+      room(lines.length * 11 + 3);
+      lines.forEach((line) => { add(52, 8.5, 'F1', line); y -= 11; });
+      y -= 3;
+    });
+  }
+
+  download(makeTextPdf(pages), fileBase().replace(/_short$/, '') + '_PLA_sheet.pdf');
+  exportMessage('PLA sheet saved.');
+}
+$('savesheet').addEventListener('click', exportPlaSheet);
+
+
+/* ==========================================================================
    ## 11 - STARTUP: loading a PDF and wiring up the buttons
    This file runs last. Everything it uses is defined in the files before it.
    ========================================================================== */
@@ -2599,13 +3797,15 @@ let PARSED = null; // the last PLA that was read (kept so changing a rule can re
 function applyAll() {
   convert(PARSED);
   // Options that only make sense for the new format are hidden for old-format files.
-  $('rules').style.display = S.oldfmt ? 'none' : '';
+  $('rules').style.display = S.oldfmt || PARSED.generated ? 'none' : '';
   $('p3h').textContent = S.oldfmt ? 'Source Plate Sequence - Full PLA ' : 'Source Plate Sequence - PLA Page';
   $('p3s').textContent = S.oldfmt ? 'Show/Hide the full PLA' : 'Show/Hide plate sequence from PLA';
   $('p3img').style.display = S.oldfmt ? 'none' : '';
   $('p3pages').innerHTML = '';
   renderPanel();
   render();
+  if (PARSED.generated) $('p3panel').style.display = 'none'; // a built layout has no source PLA to show
+  else fillBuilderFromLayout(); // a loaded PLA also fills in the Build PLA boxes
 }
 
 /** Render one PDF page to a PNG data URL (used for the "Source" panel). */
@@ -2683,6 +3883,12 @@ $('optNum').addEventListener('change', (e) => { S.opt.num = e.target.checked; re
 
 // ---- Plate table: click a row to select it, change a dropdown to edit that plate ----
 $('tbl').addEventListener('click', (e) => {
+  const act = e.target.closest && e.target.closest('button[data-act]');
+  if (act) {
+    if (act.dataset.act === 'add') insertPlateAfter(+act.dataset.i + 1);
+    else removePlate(+act.dataset.i + 1);
+    return;
+  }
   const row = e.target.closest && e.target.closest('tr');
   if (row && row.rowIndex > 0 && e.target.tagName !== 'SELECT' && e.target.tagName !== 'OPTION') selectPlate(row.rowIndex);
 });
