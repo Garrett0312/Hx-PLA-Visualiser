@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+  var APP_NAME = 'PLA Visualizer V2.9.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+
+
+  var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
+  if (/\d+\.\d+/.test(fileName)) APP_NAME = fileName; // e.g. PLA_VisualizerV2.9.1 opened locally
+  document.getElementById('verline').textContent = APP_NAME;
+  /*document.title = APP_NAME;*/
+</script>
 <link rel="icon" type="image/png" id="favicon"><!-- the icon itself is set from the bottom of this file -->
 
 <style>
@@ -406,6 +415,8 @@ tr.chg td {
             <div id="notes"></div>
           </div>
         </div>
+        <div id="verline" style="text-align: center; font-size: 11px; color: #999; padding: 6px 0 12px"></div>
+        <script>document.getElementById('verline').textContent = APP_NAME;</script>
       </div>
 
       <!-- ================= RIGHT: the plate strip ================= -->
@@ -3556,7 +3567,8 @@ function makeTextPdf(pages) {
   object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>');
   object(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>'); // F4: "Q" is a capital theta
   pages.forEach((items, i) => {
-    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj ET`).join('\n') + '\n'
+    //const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (Q) Tj` : ''} ET`).join('\n') + '\n'
+    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (q) Tj` : ''} ET`).join('\n') + '\n'
       + `BT /F1 8 Tf 520 24 Td (Page ${i + 1} of ${pages.length}) Tj ET\n`;
     object(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageIds[i] + 1} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>`);
     object(pageIds[i] + 1, `<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream`);
@@ -3644,7 +3656,7 @@ function plateListRows(P, info, turns, flow) {
   const nozzlePorts = flow ? [flow.hot.i, flow.hot.o, flow.cold.i, flow.cold.o] : [];
   const used = (end) => [1, 2, 3, 4].map((port) => (!flow || nozzlePorts.includes(end + port) ? 'O' : ' '));
   const rows = [];
-  rows.push({ text: ' '.repeat(6) + '---- FRAME PLATE ----'.padEnd(29) + block(used('S'), ['', '']), theta: '' });
+  rows.push({ text: ' '.repeat(6) + '---- FRAME PLATE ----'.padEnd(29) + block(used('S'), ['', '']), theta: '', kind: 'frame', cells: used('S'), arrows: ['', ''] });
 
   P.forEach((p, idx) => {
     const n = idx + 1;
@@ -3676,10 +3688,11 @@ function plateListRows(P, info, turns, flow) {
       text: String(n).padEnd(6) + pad(p.code).padEnd(6) + digitsOf(p.code).padEnd(8) + p.letter.padEnd(5) + position.padEnd(10)
         + block(cells, arrows) + (pattern ? '      ' + pattern : ''),
       theta: lvl,
+      kind: 'plate', n, code: pad(p.code), punch: digitsOf(p.code), ab: p.letter, pos: position, cells, arrows, pattern,
     });
   });
 
-  rows.push({ text: ' '.repeat(6) + '--- PRESSURE PLATE ---'.padEnd(30) + block(used('T'), ['', '']), theta: '' });
+  rows.push({ text: ' '.repeat(6) + '--- PRESSURE PLATE ---'.padEnd(30) + block(used('T'), ['', '']), theta: '', kind: 'pressure', cells: used('T'), arrows: ['', ''] });
   return rows;
 }
 
@@ -3736,16 +3749,39 @@ function exportPlaSheet() {
   y -= 22;
 
   // ---- The plate list (continues over as many pages as it needs) ----
-  const SIZE = 8.4;
-  const CHAR = SIZE * 0.6; // Courier character width
-  const header = () => { add(45, SIZE, 'F3', LIST_HEADER); y -= 13; };
+  // Helvetica is not monospaced, so every column is placed at its own x position.
+  const SIZE = 9;
+  const COLX = { plate: 45, code: 82, punch: 114, ab: 162, pos: 192, ports: [262, 312, 362, 412], pattern: 452 };
+  const CEN = { code: 93, punch: 128, ab: 170, pos: 210, pattern: 480, frame: 155 }; // header centres; frame = middle of the Code..Position headers
+  const THETA_W = 0.724; // Symbol "Q" (capital theta). If you switch to lowercase "q" in makeTextPdf, use 0.521
+  const WIDTH = { ' ': 0.278, O: 0.778, U: 0.722, '=': 0.584, '-': 0.333, '<': 0.584, '>': 0.584, I: 0.278, P: 0.667, E: 0.667, C: 0.722, A: 0.667, B: 0.667, M: 0.833, H: 0.722, T: 0.611, R: 0.722, F: 0.611, S: 0.667 }; // Helvetica widths (per 1 pt of size)
+  const textWidth = (text) => [...text].reduce((sum, ch) => sum + (WIDTH[ch] || 0.556), 0) * SIZE;
+  const centred = (font, text, centre, size) => add(centre - textWidth(text) * (size || SIZE) / SIZE / 2, size || SIZE, font, text);
+  const header = () => {
+    add(COLX.plate, SIZE, 'F2', 'Plate'); centred('F2', 'Code', CEN.code); centred('F2', 'Punch', CEN.punch);
+    centred('F2', 'A/B', CEN.ab); centred('F2', 'Position', CEN.pos);
+    COLX.ports.forEach((x, k) => centred('F2', String(k + 1), x));
+    centred('F2', 'Plate Pattern', CEN.pattern);
+    y -= 14;
+  };
   room(40);
   header();
   list.forEach((row) => {
-    if (y - 11 < BOTTOM) { newPage(); header(); }
-    add(45, SIZE, 'F3', row.text);
-    if (row.theta) add(45 + row.text.length * CHAR, SIZE, 'F4', 'Q'); // Symbol font: Q = theta
-    y -= 11;
+    if (y - 12 < BOTTOM) { newPage(); header(); }
+    if (row.kind === 'plate') {
+      add(COLX.plate, SIZE, 'F1', String(row.n));
+      centred('F1', row.code, CEN.code); centred('F1', row.punch, CEN.punch);
+      centred('F1', row.ab, CEN.ab); centred('F1', row.pos, CEN.pos);
+    } else {
+      centred('F1', row.kind === 'frame' ? '----------- FRAME PLATE -----------' : '---------- PRESSURE PLATE ----------', CEN.frame);
+    }
+    row.cells.forEach((cell, k) => { if (cell.trim()) centred('F1', cell, COLX.ports[k]); });
+    row.arrows.forEach((arrow, k) => { if (arrow) centred('F1', arrow[0] === '-' ? '-' + arrow + '-' : arrow, (COLX.ports[k * 2] + COLX.ports[k * 2 + 1]) / 2); }); // hot dashes are narrow in Helvetica, so one more each side (---<---, as CAS prints it)
+    if (row.kind === 'plate' && row.pattern) {
+      const w = textWidth(row.pattern) + (row.theta ? THETA_W * SIZE : 0);
+      items.push({ x: CEN.pattern - w / 2, y, size: SIZE, font: 'F1', text: row.pattern, theta: !!row.theta });
+    }
+    y -= 12;
   });
 
   // ---- Summary (like the Article / Quantity block at the end of the CAS listing) ----
@@ -3757,7 +3793,7 @@ function exportPlaSheet() {
   y -= 13;
   rows.forEach((r) => {
     add(45, 9, 'F1', 'Plate ' + r.name); add(95, 9, 'F1', String(r.qty)); add(130, 9, 'F1', r.fn);
-    add(240, 9, 'F3', r.digits); add(290, 9, 'F1', pad(r.code)); add(330, 9, 'F1', r.theta);
+    add(240, 9, 'F1', r.digits); add(290, 9, 'F1', pad(r.code)); add(330, 9, 'F1', r.theta);
     add(405, 9, 'F1', [r.A ? `A x${r.A}` : '', r.B ? `B x${r.B}` : ''].filter(Boolean).join('   '));
     y -= 13;
   });
