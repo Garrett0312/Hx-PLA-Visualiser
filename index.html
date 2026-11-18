@@ -5,12 +5,11 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V2.9.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.2.3'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
   if (/\d+\.\d+/.test(fileName)) APP_NAME = fileName; // e.g. PLA_VisualizerV2.9.1 opened locally
-  document.getElementById('verline').textContent = APP_NAME;
   /*document.title = APP_NAME;*/
 </script>
 <link rel="icon" type="image/png" id="favicon"><!-- the icon itself is set from the bottom of this file -->
@@ -326,7 +325,7 @@ tr.chg td {
             </div>
             <div id="gennote" class="sub" style="margin-top: 6px; color: #9a5b00; font-weight: 600"></div>
             <div class="row" style="margin-top: 8px"><button id="genbuild">Build layout</button></div>
-            <div class="row" style="margin-top: 6px"><button class="sec" id="genfill" title="Fill the boxes above from the PLA that is loaded now, including any plate edits you made">Fill from loaded PLA</button></div>
+            <div class="row" style="margin-top: 6px"><button class="sec" id="genfill" title="Fill the boxes above from the PLA that is loaded now, including any plate edits you made">Fill from loaded PLA</button> <button class="sec" id="genrestore" title="Put the PLA back exactly as it was when you opened the file, undoing plate edits and built layouts, and refill the boxes">Restore loaded PLA</button></div>
             <div id="genmsg" class="sub" style="margin-top: 6px"></div>
           </div>
         </div>
@@ -389,10 +388,11 @@ tr.chg td {
               <label>
                 Plate 1 is
                 <select id="optL1">
+                  <option value="auto" selected>Auto</option>
                   <option value="A">A</option>
                   <option value="B">B</option>
                 </select>
-                (letters alternate; both samples start on A)
+                (letters alternate; Auto: plate 2 carries the fluid with more channels, hot when equal)
               </label>
             </div>
             <div class="row">
@@ -710,7 +710,7 @@ function roman(n) {
 const S = {
   info: {},
   plates: [],
-  opt: { l1: 'A', ep1: 'chart', num: true },
+  opt: { l1: 'auto', ep1: 'chart', num: true },
   flow: { hot: { i: 'S1', o: 'S2' }, cold: { i: 'S3', o: 'S4' } },
   notes: [],
   live: [],
@@ -866,7 +866,7 @@ function turningPositions(groupingText) {
 
 /** "DR15-M2 TI 0.50" / "T8 B2" style text -> theta level: 1 = Low, 2 = High, or undefined. */
 function thetaLevel(text) {
-  const m = (text || '').match(/[A-Z0-9]+-([A-Z]+)([12])\b/);
+  const m = (text || '').match(/(?:^|[^A-Za-z0-9])[A-Z0-9]+[- ]([A-Z]+)([12])\b/);
   return m ? +m[2] : undefined;
 }
 
@@ -909,7 +909,7 @@ function parse(pages) {
     let current = null;
     for (let j = start + 1; j < end; j++) {
       const line = lines[j];
-      const header = line.match(/^Plate\s+([IVX]+)\s+(\d+)\s*(.*)$/); // "Plate III  25  Channel ..."
+      const header = line.match(/^Plate\s+([IVX]+)\s+(?:[A-Z]{2,}\d+\s+)?(?:\d{6,}(?:-\d+)?\s+)?(\d+)\s*(.*)$/); // "Plate III  25  Channel ..."
       if (header && ROMAN_NUMERAL.test(header[1])) {
         current = { name: header[1], qty: +header[2], text: header[3] };
         blocks.push(current);
@@ -935,6 +935,12 @@ function parse(pages) {
     const holes = t.match(/(?:^|[^\w.])([0-4]{4})(?![\w.])/); // the 4-digit punch string, e.g. 1234
     b.holeStr = holes ? holes[1] : null;
     b.ports = b.holeStr ? b.holeStr.split('').map(Number).filter((d) => d > 0) : null;
+    // Gasket side (FlexFlow plates): "Wide" / "Narrow" on the plate's own row, or "(W)" / "(N)" after the gasket line. The gasket rows
+    // further down (after the module / article numbers) are left out: an end plate can list both.
+    const head = t.split(/\b(?:MV|MSI)\d/)[0];
+    const wideNarrow = head.match(/\b(Wide|Narrow)\b/i);
+    const paren = head.match(/\(([NW])\)/);
+    b.side = wideNarrow ? (/^w/i.test(wideNarrow[1]) ? 'W' : 'N') : paren ? paren[1] : undefined;
   });
 
   return { info, flow: nozzle.flow, blocks };
@@ -1055,18 +1061,98 @@ function assignThetaByLetter(plates, seq, blocks) {
     const block = plates[i].letter === 'A' ? onA : onB;
     plates[i].theta = thetaLevel(block.text);
     plates[i].src = 'Plate ' + block.name + ' ' + (block.holeStr || '?');
+    plates[i].side = block.side;
   });
+}
+
+/** Channel types of one fluid, in order along its passes, from parseGrouping() groups. */
+function expandChannelTypes(groups) {
+  const out = [];
+  groups.forEach((g) => { for (let r = 0; r < g.pass; r++) g.pieces.forEach((piece) => { for (let c = 0; c < piece.chan; c++) out.push(piece.type); }); });
+  return out;
+}
+
+/**
+ * Plate 2 carries the fluid with more channels (hot when equal); if that fluid's channel runs on S1/S2 (B plates)
+ * plate 1 is an A plate, if it runs on S3/S4 (A plates) plate 1 is a B plate. Checked on 23 PLAs.
+ */
+function autoFirstLetter(info, flow) {
+  const g = parseGrouping(info.grouping);
+  if (!g || !flow) return null;
+  const hot = expandChannelTypes(g.hot).length;
+  const cold = expandChannelTypes(g.cold).length;
+  const first = hot >= cold ? 'hot' : 'cold';
+  const col = columnOf(+String(flow[first].i).slice(1));
+  return { first, col, l1: col === 'A' ? 'B' : 'A' };
+}
+
+/**
+ * Place the channel-plate blocks that share the same punch holes (they differ only in theta and gasket side, e.g.
+ * Plate II = M1 x23, Plate III = M2 x23) using the stack pattern: theta from stackThetas(), side from the Na / Wi types.
+ * Returns false (and changes nothing) when the grouping cannot be read or the result does not match the summary's quantities.
+ */
+function assignThetaByRule(plates, seq, blocks, info, notes) {
+  const channelBlocks = blocks.filter((b) => b.fn === 'CP');
+  const main = channelBlocks.slice().sort((a, b) => b.qty - a.qty)[0];
+  if (!main) return true;
+  const family = channelBlocks.filter((b) => b.holeStr === main.holeStr);
+  if (family.length < 2) return true;
+  const g = parseGrouping(info.grouping);
+  if (!g) return false;
+  const types = { hot: expandChannelTypes(g.hot), cold: expandChannelTypes(g.cold) };
+  const N = plates.length;
+  if (types.hot.length + types.cold.length !== N - 1) return false;
+  const first = types.hot.length >= types.cold.length ? 'hot' : 'cold';
+  const second = first === 'hot' ? 'cold' : 'hot';
+  const chanType = (j) => (j % 2 === 1 ? types[first][(j - 1) / 2] : types[second][j / 2 - 1]);
+  const th = stackThetas(N, chanType);
+  if (!th) return false;
+
+  const chosen = [];
+  const used = new Map();
+  for (let i = 0; i < N; i++) {
+    if (seq[i] !== main) continue;
+    const n = i + 1;
+    const own = n % 2 === 0 ? types[first][Math.min((n - 2) / 2, types[first].length - 1)] : types[second][Math.min((n - 3) / 2, types[second].length - 1)];
+    const want = sideOfType(own);
+    let candidates = family.filter((b) => thetaLevel(b.text) === th[i]);
+    const bySide = candidates.filter((b) => b.side === want);
+    if (want && bySide.length) candidates = bySide;
+    if (!candidates.length) return false;
+    chosen.push([i, candidates[0]]);
+    used.set(candidates[0], (used.get(candidates[0]) || 0) + 1);
+  }
+  if (family.some((b) => (used.get(b) || 0) !== b.qty)) return false;
+  chosen.forEach(([i, b]) => {
+    plates[i].theta = thetaLevel(b.text);
+    plates[i].src = 'Plate ' + b.name + ' ' + (b.holeStr || '?');
+    plates[i].side = b.side;
+  });
+  notes.push(['ok', 'The channel plates that share one punch code were placed with the stack pattern (theta alternates Low / High across mixed channels, a plate between an H or L zone and a mixed zone takes the H or L theta, and the gasket side follows the Na / Wi type of the fluid each plate carries). The counts match the summary table. The page-3 picture is the check for the order.']);
+  return true;
 }
 
 /** Turn a parsed new-format PLA into S.plates (one entry per plate) and S.notes. */
 function convertNew(parsed) {
   const opt = S.opt;
   const notes = [];
+  // Wide / Narrow only means something on FlexFlow plates (a Na / Wi type in the grouping); plain PLAs print "Wide" on every plate.
   const seq = buildSequence(parsed.info, parsed.blocks, notes);
   const flipLetter = (l) => (l === 'A' ? 'B' : 'A');
+  let l1 = opt.l1;
+  if (opt.l1 === 'auto') {
+    const auto = autoFirstLetter(parsed.info, parsed.flow);
+    if (auto) {
+      l1 = auto.l1;
+      notes.push(['ok', `Plate 1 is an ${l1} plate: plate 2 carries the ${auto.first} fluid (the one with more channels, hot when equal), which runs on the ${auto.col === 'A' ? 'S3 / S4' : 'S1 / S2'} ports, so plate 2 is ${auto.col} and the letters alternate. Change it under Conversion rules if the page-3 picture says otherwise.`]);
+    } else {
+      l1 = 'A';
+      notes.push(['warn', 'Could not work out which fluid has the extra channel, so plate 1 is assumed to be an A plate. Change it under Conversion rules.']);
+    }
+  }
 
   const plates = seq.map((block, i) => {
-    const letter = i % 2 === 0 ? opt.l1 : flipLetter(opt.l1); // letters alternate down the stack
+    const letter = i % 2 === 0 ? l1 : flipLetter(l1); // letters alternate down the stack
     if (!block) return { code: 3, letter, src: '?', unk: true, role: 'CP' };
 
     // Punch-code digits -> which A-position corners are holed -> chart base number.
@@ -1096,10 +1182,11 @@ function convertNew(parsed) {
       src: 'Plate ' + block.name + ' ' + (block.holeStr || '?'),
       unk: unknown || !block.fnKnown,
       theta: thetaLevel(block.text),
+      side: block.side,
     };
   });
 
-  assignThetaByLetter(plates, seq, parsed.blocks);
+  if (!assignThetaByRule(plates, seq, parsed.blocks, parsed.info, notes)) assignThetaByLetter(plates, seq, parsed.blocks);
 
   S.flow = parsed.flow || { hot: { i: 'S1', o: 'S2' }, cold: { i: 'S3', o: 'S4' } };
   if (!parsed.flow) notes.push(['warn', 'Could not read the nozzle orientation. Set the flow ports manually.']);
@@ -2017,6 +2104,7 @@ function render() {
 
     // Code, letter and punch digits under the plate: "03  A" / "1234".
     text += txt(s0.x + 6.1, TY, pad(plate.code), 10.5, 'middle') + txt(s0.x + 21.3, TY, plate.letter, 10.5, 'middle')
+      + (plate.side && groupingHasSides() ? txt(s0.x + 29.6, TY - 4.5, plate.side, 6.5, 'middle', '#555') : '')
       + `<line x1="${s0.x}" y1="${TY + 2}" x2="${s0.x + 12.2}" y2="${TY + 2}" stroke="#111" stroke-width=".7"/>`
       + `<line x1="${s0.x + 15.2}" y1="${TY + 2}" x2="${s0.x + 27.4}" y2="${TY + 2}" stroke="#111" stroke-width=".7"/>`;
     text += txt(s0.x + 13.5, TY + 14, digitsOf(plate.code), 9, 'middle', '#222', 'letter-spacing="1"');
@@ -2091,7 +2179,7 @@ const $ = (id) => document.getElementById(id);
 
 /** "DR6-P2" -> {pre:'P', lvl:2}. Level 1 = Low theta, level 2 = High theta. */
 function thetaOf(block) {
-  const m = (block.text || '').match(/[A-Z0-9]+-([A-Z]+)([12])\b/);
+  const m = (block.text || '').match(/(?:^|[^A-Za-z0-9])[A-Z0-9]+[- ]([A-Z]+)([12])\b/);
   return m ? { pre: m[1], lvl: +m[2] } : null;
 }
 
@@ -2103,8 +2191,196 @@ function breakdownPlatePicture(digits, isDiamondPlate, theta) {
   return `<svg viewBox="-3 -3 33.4 47.7" width="112" height="160" xmlns="http://www.w3.org/2000/svg">${plate}</svg>`;
 }
 
-function thetaLine(level, name) {
-  return `<div class="bdq">${level === 1 ? 'Low' : 'High'} &Theta; <span>(${esc(name)})</span></div>`;
+/**
+ * What a loaded PLA prints is the truth, so nothing is assumed for it. Only a layout built here assumes:
+ * a T10 or T15 gets Wide plates by default.
+ */
+function defaultSide() {
+  return PARSED && PARSED.generated && /^\s*T(10|15)\b/i.test(String((S.info && S.info.model) || '')) ? 'W' : '';
+}
+/** The strip and the plate editor only show N / W when the grouping itself uses Na / Wi plate types. */
+function groupingHasSides() {
+  return /[HLM](Na|Wi)\b/.test((S.info && S.info.grouping) || '');
+}
+
+function thetaLine(level, name, side) {
+  // side = 'N' / 'W' on FlexFlow plates: "High Theta (M2) W"
+  return `<div class="bdq">${level === 1 ? 'Low' : 'High'} &Theta; <span>(${esc(name)})</span>${side ? ' ' + esc(side) : ''}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Side view: the plate profiles seen from the side, frame plate on the left
+// ---------------------------------------------------------------------------
+
+// a = wave height, period = wave length (SVG units), k = how lopsided an asymmetric (FlexFlow) profile is
+const SIDE_VIEW = { a: 15, period: 64, periods: 3.5, k: 0.27, first: 5, last: 3 };
+
+/**
+ * Plate profiles, from the base plates drawing: symmetric A / B, and asymmetric A W / B W / A N / B N.
+ *   profile = (A: +1, B: -1) * cos(t)  +  (W: +k, N: -k, symmetric: 0) * cos(2t)
+ * B is A shifted half a wave (the horizontal flip), N is W upside down. Two plates of the same side form a symmetric channel;
+ * a W plate against an N plate gives a wide channel on one side of it and a narrow one on the other.
+ * Symmetric plates are used unless the pack has a Na / Wi side, except on T10 and T15 units, which use the asymmetric (W) plate by default.
+ */
+function sideViewHtml() {
+  const P = S.plates || [];
+  if (P.length < 3 || !S.flow) return '';
+  const { a, period, periods, k, first, last } = SIDE_VIEW;
+  const model = String((S.info && S.info.model) || '');
+  const sideOf = (p) => p.side || defaultSide();
+  const g = (p, t) => (p.letter === 'A' ? 1 : -1) * Math.cos(t) + (sideOf(p) === 'W' ? k : sideOf(p) === 'N' ? -k : 0) * Math.cos(2 * t);
+
+  // Which plates to draw: all of them for a short unit, otherwise the first few and the last few.
+  const idx = P.map((_, i) => i);
+  // Compact view uses the same repeat rules as the flow strip: the plates it collapses are left out, with dots in their place.
+  const runInfo = findRepeatRuns(P);
+  const hiddenNo = runInfo.hidden; // plate numbers (1-based)
+  const canCompact = idx.some((i) => hiddenNo[i + 1]);
+  const full = !canCompact || !!S.sideFull; // compact: collapsed like the strip; full: every plate
+  const shown = [];
+  if (full) idx.forEach((i) => shown.push(i));
+  else idx.filter((i) => !hiddenNo[i + 1]).forEach((i) => { if (shown.length && i - shown[shown.length - 1] > 1) shown.push(-1); shown.push(i); });
+
+  // Horizontal position of every shown plate: neighbours are pushed together until their profiles just touch.
+  const H = periods * period;
+  const top = 34;
+  const frameW = 26;
+  const gapW = 46;
+  const steps = 240;
+  const pos = {};
+  let x = null;
+  let prev = null;
+  shown.forEach((i) => {
+    if (i < 0) { prev = null; x += gapW; return; }
+    if (x === null) {
+      let maxG = -9;
+      for (let n = 0; n < steps; n++) maxG = Math.max(maxG, g(P[i], (2 * Math.PI * n) / steps));
+      x = frameW + a * maxG; // the first plate's highest point touches the frame plate
+    } else if (prev !== null) {
+      let need = -9;
+      for (let n = 0; n < steps; n++) { const t = (2 * Math.PI * n) / steps; need = Math.max(need, a * (g(P[i], t) - g(P[prev], t))); }
+      x += need;
+    } else {
+      x += 8;
+    }
+    pos[i] = x;
+    prev = i;
+  });
+  const lastShown = shown[shown.length - 1];
+  let minG = 9;
+  for (let n = 0; n < steps; n++) minG = Math.min(minG, g(P[lastShown], (2 * Math.PI * n) / steps));
+  const pressureX = pos[lastShown] - a * minG; // the last plate's furthest point touches the pressure plate
+  const width = pressureX + frameW;
+
+  // Curve of one plate, peaks point toward the frame plate (to the left).
+  const curve = (i) => {
+    const pts = [];
+    for (let y = 0; y <= H; y += 2) pts.push([pos[i] - a * g(P[i], (2 * Math.PI * y) / period), y]);
+    return pts;
+  };
+  // A channel is only closed between its pinch points (where the two plates touch). The open slivers above the
+  // first and below the last pinch point reach the plate edge, so a gasket keeps fluid out of them: no colour.
+  const closedRange = (i, j) => {
+    const gaps = [];
+    for (let y = 0; y <= H; y += 2) {
+      const t = (2 * Math.PI * y) / period;
+      gaps.push((pos[j] - a * g(P[j], t)) - (pos[i] - a * g(P[i], t))); // right curve minus left curve
+    }
+    const lo = Math.min(...gaps);
+    if (Math.max(...gaps) - lo < 1) return [0, H, [H / 2]]; // never pinches: the whole length is one channel
+    let y0 = null;
+    let y1 = null;
+    const pinch = []; // centre of every pinch point
+    let run = [];
+    gaps.forEach((v, n) => {
+      if (v < lo + 0.8) { if (y0 === null) y0 = n * 2; y1 = n * 2; run.push(n * 2); }
+      else if (run.length) { pinch.push(run.reduce((u, w) => u + w, 0) / run.length); run = []; }
+    });
+    if (run.length) pinch.push(run.reduce((u, w) => u + w, 0) / run.length);
+    const centres = pinch.slice(1).map((y, n) => (y + pinch[n]) / 2); // middle of every closed cell
+    return [y0, y1, centres];
+  };
+  // Flow direction seen from the front: a top inlet (S1 or S4) flows down first, a bottom inlet up first; every pass reverses it.
+  const turnAt = P.map((p, n) => (p.turning ? n + 1 : 0)).filter(Boolean);
+  const startsDown = (nozzle) => nozzle[1] === '1' || nozzle[1] === '4';
+  const dirOf = (plateIdx) => {
+    const fluid = P[plateIdx].letter === hotColumn ? 'hot' : 'cold';
+    const left = turnAt.filter((t) => t < plateIdx + 1).length;
+    // A fluid that comes in on the pressure-plate side (T ports) meets its first pass at the pressure end.
+    const pass = S.flow[fluid].i[0] === 'T' ? turnAt.length - left : left;
+    return (startsDown(S.flow[fluid].i) ? pass % 2 === 0 : pass % 2 === 1) ? 'D' : 'U';
+  };
+  const fmt = (pts) => pts.map((p) => p[0].toFixed(1) + ',' + (p[1] + top).toFixed(1)).join(' ');
+  const hotColumn = columnOf(+S.flow.hot.i[1]);
+  const G = analyse();
+
+  let fills = '';
+  let defs = '';
+  let lines = '';
+  let labels = '';
+  shown.forEach((i, n) => {
+    if (i < 0) {
+      const gx = pos[shown[n - 1]] + gapW / 2 + 4;
+      labels += [0.35, 0.5, 0.65].map((f) => `<circle cx="${gx.toFixed(1)}" cy="${(top + H * f).toFixed(1)}" r="2.2" fill="#555"/>`).join('');
+      return;
+    }
+    const c = curve(i);
+    const rep = !full && runInfo.repOf[i + 1]; // a plate that stands in for a collapsed run: dashed, like the flow strip
+    lines += `<polyline points="${fmt(c)}" fill="none" stroke="#111" stroke-width="2.4" stroke-linejoin="round"${rep ? ' stroke-dasharray="6 4"' : ''}/>`;
+    if (n > 0 && shown[n - 1] >= 0) {
+      const left = curve(shown[n - 1]);
+      // The channel belongs to the plate on its right, and has exactly the fluid the flow strip shows on that plate:
+      // an end plate that carries no fluid leaves the channel empty.
+      const edge = G.edgeAt[i + 1];
+      if (edge && edge.fluid) {
+      const colour = edge.fluid === 'hot' ? '#ffd0d0' : '#d0d0ff';
+      const [y0, y1, centres] = closedRange(shown[n - 1], i);
+      const dir = edge.from ? ((edge.from === 1 || edge.from === 4) ? 'D' : 'U') : dirOf(i); // from the strip's own flow arrows
+      const tint = edge.fluid === 'hot' ? '#d99a9a' : '#9a9ad9';
+      centres.forEach((yc) => {
+        const tt = (2 * Math.PI * yc) / period;
+        const xm = ((pos[shown[n - 1]] - a * g(P[shown[n - 1]], tt)) + (pos[i] - a * g(P[i], tt))) / 2;
+        labels += `<text x="${xm.toFixed(1)}" y="${(top + yc + 4).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" fill="${tint}">${dir}</text>`;
+      });
+      const cut = (pts) => pts.filter((p) => p[1] >= y0 && p[1] <= y1);
+      if (y1 > y0) fills += `<polygon points="${fmt(cut(left))} ${fmt(cut(c).reverse())}" fill="${colour}"/>`;
+      }
+    }
+    else if (n > 0 && shown[n - 1] < 0 && i > 0) {
+      // First plate after the collapsed gap: the channel on its frame side belongs to the pack that repeats, so draw
+      // half of it, fading out toward the dots.
+      const hid = i - 1; // the hidden plate that would sit to its left
+      let need = -9;
+      for (let m = 0; m < steps; m++) { const t = (2 * Math.PI * m) / steps; need = Math.max(need, a * (g(P[i], t) - g(P[hid], t))); }
+      pos[hid] = pos[i] - need;
+      const [y0, y1] = closedRange(hid, i);
+      const wanted = G.edgeAt[i + 1];
+      if (wanted && wanted.fluid && y1 > y0) {
+        const hot = wanted.fluid === 'hot';
+        const left = curve(hid);
+        const mid = left.map((p, m) => [(p[0] + c[m][0]) / 2, p[1]]);
+        const cut = (pts) => pts.filter((p) => p[1] >= y0 && p[1] <= y1);
+        const id = 'fade' + i;
+        defs += `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${hot ? '#ffd0d0' : '#d0d0ff'}" stop-opacity="0.2"/><stop offset="0.6" stop-color="${hot ? '#ffd0d0' : '#d0d0ff'}" stop-opacity="1"/></linearGradient>`;
+        fills += `<polygon points="${fmt(cut(mid))} ${fmt(cut(c).reverse())}" fill="url(#${id})"/>`;
+      }
+      delete pos[hid];
+    }
+    const side = sideOf(P[i]);
+    labels += `<text x="${pos[i].toFixed(1)}" y="${top - 18}" text-anchor="middle" font-size="13" fill="#111">${P[i].letter}</text>`
+      + (side ? `<text x="${pos[i].toFixed(1)}" y="${top - 7}" text-anchor="middle" font-size="9" fill="#555">${side}</text>` : '')
+      + `<text x="${pos[i].toFixed(1)}" y="${top + H + 16}" text-anchor="middle" font-size="${rep ? 6.5 : 9}" fill="#888">${rep ? rep.a + '\u2026' + rep.b : i + 1}</text>`;
+  });
+  const frame = `<rect x="0" y="${top - 6}" width="${frameW}" height="${H + 12}" fill="#00008b"/><text x="${frameW / 2}" y="${top + H / 2}" fill="#fff" font-size="10" text-anchor="middle" transform="rotate(-90 ${frameW / 2} ${top + H / 2})">FRAME PLATE</text>`;
+  const pressure = `<rect x="${pressureX.toFixed(1)}" y="${top - 6}" width="${frameW}" height="${H + 12}" fill="#00008b"/><text x="${(pressureX + frameW / 2).toFixed(1)}" y="${top + H / 2}" fill="#fff" font-size="10" text-anchor="middle" transform="rotate(90 ${(pressureX + frameW / 2).toFixed(1)} ${top + H / 2})">PRESSURE PLATE</text>`;
+  const svg = `<svg viewBox="0 0 ${width.toFixed(0)} ${top + H + 28}" xmlns="http://www.w3.org/2000/svg" style="${full && canCompact ? `width:${Math.round(width * 1.25)}px;max-width:none` : `width:100%;max-width:${Math.round(width * 1.5)}px`};height:auto;font-family:inherit"><defs>${defs}</defs>${frame}${pressure}${fills}${lines}${labels}</svg>`;
+
+  const kinds = P.some((p) => sideOf(p))
+    ? (P.some((p) => p.side) ? 'Asymmetric (FlexFlow) plates, W and N as the PLA gives them.' : 'Assumed: all W. A T10 or T15 built here gets Wide plates by default.')
+    : 'Symmetric plates.';
+  return '<div class="bdh" style="margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Side view <span>Schematic. Frame plate on the left. Pink = hot channels, blue = cold. D / U = flow down / up, seen from the front.</span>'
+    + (canCompact ? `<button class="sec" id="sidetoggle" style="margin-left:auto">${full ? 'Compact view' : 'Full view'}</button>` : '') + '</div>'
+    + `<div style="padding:4px 4px 10px"><div style="overflow-x:auto">${svg}</div><div class="sub" style="margin:4px 0 0">${esc(kinds)} ${canCompact && !full ? 'Collapsed like the flow strip: the repeating plates are left out where the dots are.' : ''}</div></div>`;
 }
 
 function renderBreakdown() {
@@ -2130,7 +2406,7 @@ function renderBreakdown() {
       html += `<div class="bdc"><div class="bdt">Plate ${roman(index + 1)}</div>`
         + breakdownPlatePicture(digits, roleLabel(first) === 'End II', patternTheta(b.pat))
         + `<div class="bdn">${roleName}</div>`
-        + (theta ? thetaLine(+theta[2], theta[1] + theta[2]) : '')
+        + (theta ? thetaLine(+theta[2], theta[1] + theta[2], defaultSide()) : '')
         + `<div class="bdq">${esc(digits)} &middot; code ${pad(first.code)} &middot; x${b.qty}</div>`
         + `<div class="bdq">${esc(b.name)}${b.pat ? ' &middot; ' + esc(b.pat) : ''}</div></div>`;
       return;
@@ -2151,12 +2427,13 @@ function renderBreakdown() {
     html += `<div class="bdc"><div class="bdt">Plate ${esc(b.name)}</div>`
       + breakdownPlatePicture(b.holeStr || '', b.fn === 'EP2', theta && theta.lvl)
       + `<div class="bdn">${roleName}</div>`
-      + (theta ? thetaLine(theta.lvl, theta.pre + theta.lvl) : '')
+      + (theta ? thetaLine(theta.lvl, theta.pre + theta.lvl, first.side || b.side || defaultSide()) : '')
       + `<div class="bdq">${esc(digits)} &middot; code ${pad(first.code)} &middot; x${b.qty}</div></div>`;
   });
 
-  el.innerHTML = html + '</div>';
+  el.innerHTML = html + '</div>' + sideViewHtml();
   el.style.display = 'block';
+  if ($('sidetoggle')) $('sidetoggle').onclick = () => { S.sideFull = !S.sideFull; renderBreakdown(); };
 }
 
 // ---------------------------------------------------------------------------
@@ -2206,6 +2483,7 @@ function renderEditBar() {
     const plate = S.plates[selected - 1];
     bar.innerHTML = `<b>Plate ${selected}</b><select id="ecode">${codeOptions(plate.code, plate.turning)}</select><select id="elet">${letterOptions(plate.letter)}</select>`
       + `<select id="etheta" title="Theta (sets the chevron angle)"><option value=""${plate.theta ? '' : ' selected'}>&Theta; ?</option><option value="1"${plate.theta === 1 ? ' selected' : ''}>Low &Theta;</option><option value="2"${plate.theta === 2 ? ' selected' : ''}>High &Theta;</option></select>`
+      + (S.plates.some((p) => p.side) && groupingHasSides() ? `<select id="eside" title="Gasket side facing the frame plate (FlexFlow plates)"><option value=""${plate.side ? '' : ' selected'}>Side ?</option><option value="N"${plate.side === 'N' ? ' selected' : ''}>Narrow</option><option value="W"${plate.side === 'W' ? ' selected' : ''}>Wide</option></select>` : '')
       + '<button class="sec" id="eprev">&lt;</button><button class="sec" id="enext">&gt;</button>'
       + '<button class="sec" id="eadd" title="Add a plate to the right of this one">+ Add plate</button>'
       + '<button class="sec" id="edel" title="Remove this plate from the layout">Remove plate</button>'
@@ -2213,6 +2491,7 @@ function renderEditBar() {
     $('ecode').onchange = (e) => { Object.assign(plate, parseCodeChoice(e.target.value), { unk: false }); render(); };
     $('etheta').onchange = (e) => { plate.theta = e.target.value ? +e.target.value : undefined; render(); };
     $('elet').onchange = (e) => { plate.letter = e.target.value; plate.unk = false; render(); };
+    if ($('eside')) $('eside').onchange = (e) => { plate.side = e.target.value || undefined; render(); };
     $('eadd').onclick = () => insertPlateAfter(selected);
     $('edel').onclick = () => removePlate(selected);
     $('eprev').onclick = () => selectPlate(selected - 1);
@@ -2273,7 +2552,7 @@ function parseGrouping(text) {
     const starts = [...part.matchAll(/(\d+)\s*\*\s*\(?/g)];
     return starts.map((m, i) => {
       const body = part.slice(m.index + m[0].length, i + 1 < starts.length ? starts[i + 1].index : part.length);
-      const pieces = [...body.matchAll(/(\d+)\s*([A-Za-z]{0,2})/g)].map((x) => ({ chan: +x[1], type: THETA_TYPES.includes(x[2].toUpperCase()) ? x[2].toUpperCase() : '' }));
+      const pieces = [...body.matchAll(/(\d+)\s*([A-Za-z]{0,3})/g)].map((x) => ({ chan: +x[1], type: normType(x[2]) }));
       return { pass: +m[1], pieces };
     }).filter((g) => g.pieces.length);
   };
@@ -2394,6 +2673,7 @@ function fillBuilderFromLayout() {
   GEN.mode = mode;
   GEN.hot = fill(hot);
   GEN.cold = fill(cold);
+  GEN_AUTO.hot = {}; GEN_AUTO.cold = {};
   renderGenGrid();
   // nozzles
   const f = S.flow;
@@ -2441,6 +2721,7 @@ function insertPlateAfter(i) {
   const source = like || ref;
   const plate = {
     code: 3, letter: ref.letter === 'A' ? 'B' : 'A', role: 'CP', turning: false, transition: false, unk: false, added: true,
+    side: ref.side ? (ref.side === 'N' ? 'W' : 'N') : undefined,
     old: ref.old, pla: source.pla, theta: source.theta, type: source.type, src: source.src || 'Added by hand',
   };
   P.splice(i, 0, plate);
@@ -2887,11 +3168,45 @@ const COLUMN_PORTS = { A: [4, 3], B: [1, 2] };
 const columnOf = (port) => (port === 1 || port === 2 ? 'B' : 'A');
 
 // Plate types offered in the builder, and what they mean for the drawing.
-const THETA_TYPES = ['MH', 'ML', 'H', 'L'];
-const THETA_OF_TYPE = { H: 2, MH: 2, L: 1, ML: 1 }; // 1 = Low theta, 2 = High theta
+// FlexFlow (asymmetric) plates add Na (narrow channel) or Wi (wide channel): the other fluid has the opposite one.
+const THETA_TYPES = ['MH', 'ML', 'H', 'L', 'HNa', 'HWi', 'LNa', 'LWi', 'MNa', 'MWi'];
+const THETA_OF_TYPE = { H: 2, MH: 2, L: 1, ML: 1, HNa: 2, HWi: 2, LNa: 1, LWi: 1, MNa: 2, MWi: 2 }; // 1 = Low theta, 2 = High theta
 // Picking a hot-side type fills in the cold side's default (a type and its partner):
 // H pairs with H, L with L, and MH with ML (from the Excel rules).
-const PAIR_TYPE = { '': '', H: 'H', L: 'L', MH: 'ML', ML: 'MH' };
+const PAIR_TYPE = { '': '', H: 'H', L: 'L', MH: 'ML', ML: 'MH', HNa: 'HWi', HWi: 'HNa', LNa: 'LWi', LWi: 'LNa', MNa: 'MWi', MWi: 'MNa' };
+const sideOfType = (t) => (/Na$/.test(t || '') ? 'N' : /Wi$/.test(t || '') ? 'W' : undefined);
+
+/** "mh" / "HNA" -> the canonical type name ("MH", "HNa"), or '' when it is not a plate type. */
+function normType(text) {
+  const t = String(text || '').toUpperCase();
+  const m = t.match(/^([HLM])(NA|WI)$/);
+  if (m) return m[1] + (m[2] === 'NA' ? 'Na' : 'Wi');
+  return ['MH', 'ML', 'H', 'L'].includes(t) ? t : '';
+}
+
+/**
+ * Theta of every plate in a stack, the way OnePHL lays it out (checked on 23 PLAs):
+ *   - H and L channels give every plate next to them that theta;
+ *   - M channels alternate Low / High: plate 1 is Low for MH (and a plain M, MNa, MWi) and High for ML,
+ *     after that each plate is the opposite of the one before it;
+ *   - a plate between an H / L channel and an M channel takes the H / L theta.
+ * chanType(j) = type of channel j (1 .. N-1, between plate j and j+1). Returns an array (index 0 = plate 1) or null.
+ */
+function stackThetas(N, chanType) {
+  const out = [];
+  let prev;
+  for (let n = 1; n <= N; n++) {
+    const around = [n > 1 ? chanType(n - 1) : null, n < N ? chanType(n) : null].filter((t) => t !== null);
+    if (around.some((t) => !t)) return null;
+    const pure = around.find((t) => t[0] !== 'M');
+    let th;
+    if (pure) th = pure[0] === 'H' ? 2 : 1;
+    else th = n === 1 ? (around[0] === 'ML' ? 2 : 1) : 3 - prev;
+    out.push(th);
+    prev = th;
+  }
+  return out;
+}
 
 /**
  * Work out the whole plate list. Returns { error } or { info, flow, plates, blocks, notes, passes, turnAt }.
@@ -2948,6 +3263,20 @@ function groupMisalignment(sides) {
   return `The hot and cold groupings do not line up. With ${first} starting, hot's plate type changes after hot channel ${b.h} (channel ${b.hotAt} along the stack) but cold's changes after cold channel ${b.c} (channel ${b.coldAt}). A plate touches one hot and one cold channel, so the two changes have to land within one channel of each other.` + hint;
 }
 
+/** Hot and cold types have to be partners: H with H, L with L, MH with ML, and a Na type with the Wi type of the same letter. */
+function pairingProblem(sides) {
+  const hot = sides.hot.passes.flat();
+  const cold = sides.cold.passes.flat();
+  for (let i = 0; i < Math.min(hot.length, cold.length); i++) {
+    const h = hot[i].type;
+    const c = cold[i].type;
+    if (h && c && PAIR_TYPE[h] !== c) {
+      return `Hot ${h} goes with cold ${PAIR_TYPE[h]}, not ${c}. The pairs are H with H, L with L, MH with ML, and a Na type with the Wi type of the same letter (HNa with HWi, LNa with LWi, MNa with MWi).`;
+    }
+  }
+  return '';
+}
+
 function buildLayout(spec, flow, title) {
   const pressing = pressingOfModel(title); // B / P / M ... from the unit model, used to label the thetas (B1 / B2)
   const sum = (a) => a.reduce((x, y) => x + y, 0);
@@ -2973,6 +3302,8 @@ function buildLayout(spec, flow, title) {
     return { error: `Hot has ${hotTotal} channels and cold has ${coldTotal}. Plates alternate hot and cold, so the two can differ by at most 1.` };
   }
 
+  const unpaired = pairingProblem(sides);
+  if (unpaired) return { error: unpaired };
   const misaligned = groupMisalignment(sides);
   if (misaligned) return { error: misaligned };
 
@@ -3052,51 +3383,24 @@ function buildLayout(spec, flow, title) {
     const base = findBase(letter === 'A' ? holed : rotate180(holed)); // the code is the A-position pattern
     // Plate 1 has no channel of its own, so nothing says what its theta is: it keeps the neutral chevron.
     const type = n === 1 ? undefined : typesOf[fluid][Math.min(channelNo(n), typesOf[fluid].length - 1)];
-    plates.push({ code: CODE_OFFSET[role] + base, letter, role, turning, transition: false, unk: false, type, theta: type ? THETA_OF_TYPE[type] : undefined });
+    // Gasket side (FlexFlow): the plates of each fluid take that fluid's Narrow / Wide; plate 1 takes the other fluid's, as on the OnePHL PLAs.
+    const side = sideOfType(n === 1 ? typesOf[second][0] : type);
+    plates.push({ code: CODE_OFFSET[role] + base, letter, role, turning, transition: false, unk: false, type, side, theta: type ? THETA_OF_TYPE[type] : undefined });
   }
 
-  // ---- Theta counts for mixed types (the MH / ML rule) ----
-  // Per pass and per group of channels:  MH -> High = ROUNDUP(chan/2), Low = ROUNDDOWN(chan/2)
-  //                                      ML -> High = ROUNDDOWN(chan/2), Low = ROUNDUP(chan/2);  H and L -> all of them.
-  // The plates are given thetas by fluid first; if a pass then has the wrong High/Low split for this rule,
-  // mixed-type plates at the end of that pass are flipped until the split matches.
-  const thetaTarget = passes.hot.map((_, k) => {
-    let high = 0;
-    let low = 0;
-    ['hot', 'cold'].forEach((fluid) => sides[fluid].passes[k].forEach((piece) => {
-      if (!piece.type) return;
-      const up = Math.ceil(piece.chan / 2);
-      const down = Math.floor(piece.chan / 2);
-      if (piece.type === 'MH') { high += up; low += down; }
-      else if (piece.type === 'ML') { high += down; low += up; }
-      else if (piece.type === 'H') high += piece.chan;
-      else low += piece.chan;
-    }));
-    return { high, low };
-  });
-  let thetaFlips = 0;
+  // ---- Theta: the OnePHL stack pattern (see stackThetas) ----
   const allTyped = ['hot', 'cold'].every((fluid) => typesOf[fluid].every(Boolean));
   if (allTyped) {
-    for (let k = 0; k < passCount; k++) {
-      const inPass = plates.map((p, i) => ({ p, n: i + 1 })).filter(({ n }) => n >= 2 && turnAt.filter((t) => t < n).length === k).map(({ p }) => p);
-      let diff = inPass.filter((p) => p.theta === 2).length - thetaTarget[k].high; // > 0: too many High
-      const from = diff > 0 ? 2 : 1;
-      for (let i = inPass.length - 1; i >= 0 && diff !== 0; i--) {
-        const p = inPass[i];
-        if (p.type[0] === 'M' && p.theta === from) { p.theta = 3 - from; diff += diff > 0 ? -1 : 1; thetaFlips++; }
-      }
-    }
+    const chanType = (j) => (j % 2 === 1 ? typesOf[first][(j - 1) / 2] : typesOf[second][j / 2 - 1]);
+    const th = stackThetas(N, chanType);
+    if (th) plates.forEach((p, i) => { p.theta = th[i]; });
   }
-  // The two end plates are shown as High theta (as in the CAS sheet for an M10-BFG); the rule above covers the channels between them.
   const thetaTotals = plates.slice(1, -1).reduce((t, p) => { if (p.theta === 2) t.high++; else if (p.theta === 1) t.low++; return t; }, { high: 0, low: 0 });
-  // (a unit whose channels are all L keeps Low end plates, as in the real all-L PLA; real PLAs vary here, so this is flagged as an assumption)
-  const endTheta = allTyped ? (['hot', 'cold'].every((fluid) => typesOf[fluid].every((t) => t === 'L')) ? 1 : 2) : undefined;
-  if (plates.length >= 2 && endTheta) { plates[0].theta = endTheta; plates[plates.length - 1].theta = endTheta; }
 
   // ---- Group identical plates into "Plate I, II ..." blocks (for the breakdown cards and the sheet) ----
   const blocks = [];
   plates.forEach((p) => {
-    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0);
+    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0) + '/' + (p.side || '');
     let block = blocks.find((b) => b.key === key);
     if (!block) {
       block = {
@@ -3105,8 +3409,9 @@ function buildLayout(spec, flow, title) {
         qty: 0,
         fn: p.turning ? 'TUR' : p.role,
         holeStr: digitsOf(p.code),
+        side: p.side,
         // "GEN-M2" is what thetaOf() reads to label the breakdown card (M or H/L, then the theta level).
-        text: `${p.role === 'EP2' ? 'End Plate II' : p.role === 'EP1' ? 'End Plate I' : p.turning ? 'Turning plate' : 'Channel plate'}${p.theta ? ` GEN-${pressing || (p.type ? (p.type[0] === 'M' ? 'M' : p.type) : 'H')}${p.theta}` : ''}`,
+        text: `${p.role === 'EP2' ? 'End Plate II' : p.role === 'EP1' ? 'End Plate I' : p.turning ? 'Turning plate' : 'Channel plate'}${p.theta ? ` GEN-${pressing || (p.type ? p.type[0] : 'H')}${p.theta}` : ''}`,
         code: p.code,
       };
       blocks.push(block);
@@ -3124,8 +3429,9 @@ function buildLayout(spec, flow, title) {
       ? `Assumed: turning plate${turnAt.length > 1 ? 's' : ''} at plate ${turnAt.join(', ')} (from the grouping: hot ${list(passes.hot)}, cold ${list(passes.cold)}), blocking the header each fluid came in on.`
       : `Assumed: a single pass (hot ${list(passes.hot)}, cold ${list(passes.cold)}), so there is no turning plate.`],
     ['warn', `Assumed: letters alternate and plate 2 carries ${first} (${first === 'hot' && hotTotal === coldTotal ? 'the channel counts are equal, so hot goes first' : 'the fluid with more channels goes first'}), so hot is on the ${colOf.hot} plates and cold on the ${colOf.cold} plates.`],
-    ['warn', `Assumed: theta follows the plate types you picked (hot ${typeText('hot')}, cold ${typeText('cold')}). H and L give every channel that theta. For mixed types, per pass: MH = High ROUNDUP(channels/2), Low ROUNDDOWN(channels/2); ML = High ROUNDDOWN(channels/2), Low ROUNDUP(channels/2). A blank type leaves the theta unset. The two end plates have no channel type of their own, so both are shown as High theta (Low if every channel is L), as in the CAS sheet for an M10-BFG. Real PLAs vary here, so check them.`
-      + (allTyped ? ` Result: ${thetaTotals.high} High and ${thetaTotals.low} Low channel plates between the end plates (the rule gives ${thetaTarget.reduce((a, t) => a + t.high, 0)} High and ${thetaTarget.reduce((a, t) => a + t.low, 0)} Low over all channels, and the last channel is End Plate I)${thetaFlips ? `; ${thetaFlips} mixed plate${thetaFlips > 1 ? 's were' : ' was'} set to the other theta at the end of a pass to meet the rule, so check which plates those are` : ''}.` : '')],
+    ['warn', `Assumed: theta follows the plate types you picked (hot ${typeText('hot')}, cold ${typeText('cold')}), laid out the way the OnePHL PLAs do it. H and L give every plate next to them that theta. M types alternate Low and High along the stack: plate 1 is Low for MH (and a plain M, MNa or MWi) and High for ML, a plate between an H or L zone and an M zone takes the H or L theta, and the end plates just continue the alternation. A blank type leaves the theta unset. This pattern was checked on OnePHL PLAs only (older CAS sheets show High end plates), and where H, L and M zones are mixed the order is assumed from the grouping.`
+      + (allTyped ? ` Result: ${thetaTotals.high} High and ${thetaTotals.low} Low channel plates between the end plates.` : '')],
+    ...(plates.some((p) => p.side) ? [['warn', 'Assumed: gasket sides (N = narrow, W = wide) follow the Na / Wi types you picked: the plates of each fluid take that fluid\'s side and plate 1 takes the other fluid\'s, as on the OnePHL PLAs checked.']] : []),
   ];
 
   if (pressing) notes.push(['warn', `Assumed: theta labels use the pressing depth from the unit model (${pressing}), so High theta is ${pressing}2 and Low theta is ${pressing}1.`]);
@@ -3173,6 +3479,10 @@ const GEN = {
   hot: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },   // every box starts blank
   cold: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },
 };
+
+// Boxes filled by mirroring (not typed by the user). A mirrored box can be overwritten by a mirror again;
+// once the user types in a box it is theirs and is never overwritten.
+const GEN_AUTO = { hot: {}, cold: {} };
 
 // The input boxes for each mode. `sep` is the symbol drawn before a box, `end` after the last one.
 const GEN_FIELDS = {
@@ -3307,7 +3617,8 @@ function updateGenPreview() {
   }
   let align = '';
   if (ready) {
-    const note = groupMisalignment({ hot: { passes: genSidePasses(GEN.hot, GEN.mode) }, cold: { passes: genSidePasses(GEN.cold, GEN.mode) } });
+    const both = { hot: { passes: genSidePasses(GEN.hot, GEN.mode) }, cold: { passes: genSidePasses(GEN.cold, GEN.mode) } };
+    const note = pairingProblem(both) || groupMisalignment(both);
     if (note) align = `<br><span style="color:#b00">${esc(note)}</span>`;
   }
   $('genpreview').innerHTML = 'Grouping: ' + esc(genLabel(GEN.mode)) + count + align;
@@ -3491,8 +3802,23 @@ function refreshNozzles() {
         if (partner) partner.value = GEN.cold[key];
       }
     } else {
-      GEN[side][key] = e.target.value === '' ? '' : (parseInt(e.target.value, 10) || 0);
-      if (side === 'hot' && (key === 'pass' || key === 'pass2' || GEN.mode === 4)) refreshNozzles();
+      const val = e.target.value === '' ? '' : (parseInt(e.target.value, 10) || 0);
+      GEN[side][key] = val;
+      delete GEN_AUTO[side][key];
+      // Mirror to the opposite side while that box is empty (or was only mirrored). Never overrides typed values.
+      const other = side === 'hot' ? 'cold' : 'hot';
+      const partner = $('gengrid').querySelector(`[data-side="${other}"][data-k="${key}"]`);
+      let hotChanged = side === 'hot';
+      if (partner && partner.tagName !== 'SELECT') {
+        const otherEmpty = GEN[other][key] === '' || GEN[other][key] == null;
+        if (otherEmpty || GEN_AUTO[other][key]) {
+          GEN[other][key] = val;
+          partner.value = val === '' ? '' : String(val);
+          if (val === '') delete GEN_AUTO[other][key]; else GEN_AUTO[other][key] = true;
+          if (other === 'hot') hotChanged = true;
+        }
+      }
+      if (hotChanged && (key === 'pass' || key === 'pass2' || GEN.mode === 4)) refreshNozzles();
     }
     updateGenPreview();
   };
@@ -3567,8 +3893,7 @@ function makeTextPdf(pages) {
   object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>');
   object(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>'); // F4: "Q" is a capital theta
   pages.forEach((items, i) => {
-    //const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (Q) Tj` : ''} ET`).join('\n') + '\n'
-    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (q) Tj` : ''} ET`).join('\n') + '\n'
+    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (q) Tj` : ''}${t.suffix ? ` /${t.font} ${t.size} Tf (${pdfEscape(t.suffix)}) Tj` : ''} ET`).join('\n') + '\n'
       + `BT /F1 8 Tf 520 24 Td (Page ${i + 1} of ${pages.length}) Tj ET\n`;
     object(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageIds[i] + 1} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>`);
     object(pageIds[i] + 1, `<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream`);
@@ -3596,13 +3921,13 @@ function plaSheetData() {
   // Summary rows: one per unique plate code, in order of first appearance.
   const rows = [];
   P.forEach((p) => {
-    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0);
+    const key = p.code + (p.turning ? 't' : '') + '/' + (p.theta || 0) + '/' + (p.side || '');
     let row = rows.find((r) => r.key === key);
     if (!row) {
       const fn = p.turning ? 'Turning plate' : p.role === 'EP2' || codeParts(p.code).fn === 'EP2' ? 'End Plate II'
         : p.role === 'EP1' || codeParts(p.code).fn === 'EP1' ? 'End Plate I'
         : p.role === 'TRA' || p.transition || codeParts(p.code).fn === 'TRA' ? 'Transition plate' : 'Channel plate';
-      row = { key, name: roman(rows.length + 1), fn, code: p.code, digits: digitsOf(p.code), theta: p.theta ? (p.theta === 1 ? 'Low' : 'High') : '-', qty: 0, A: 0, B: 0 };
+      row = { key, name: roman(rows.length + 1), fn: fn + (p.side ? (p.side === 'N' ? ' (narrow side)' : ' (wide side)') : ''), code: p.code, digits: digitsOf(p.code), theta: p.theta ? (p.theta === 1 ? 'Low' : 'High') : '-', qty: 0, A: 0, B: 0 };
       rows.push(row);
     }
     row.qty++;
@@ -3627,7 +3952,7 @@ function sheetPatternName(p, info) {
     return b && b.pat ? b.pat : '';
   }
   const b = blocks.find((x) => typeof p.src === 'string' && p.src.indexOf('Plate ' + x.name + ' ') === 0);
-  const m = b && (b.text || '').match(/([A-Z0-9]+)-([A-Z]+)([12])\b/);
+  const m = b && (b.text || '').match(/(?:^|[^A-Za-z0-9])([A-Z0-9]+)[- ]([A-Z]+)([12])\b/);
   return m ? `${m[1]} ${m[2]}${m[3]}` : '';
 }
 
@@ -3688,7 +4013,7 @@ function plateListRows(P, info, turns, flow) {
       text: String(n).padEnd(6) + pad(p.code).padEnd(6) + digitsOf(p.code).padEnd(8) + p.letter.padEnd(5) + position.padEnd(10)
         + block(cells, arrows) + (pattern ? '      ' + pattern : ''),
       theta: lvl,
-      kind: 'plate', n, code: pad(p.code), punch: digitsOf(p.code), ab: p.letter, pos: position, cells, arrows, pattern,
+      kind: 'plate', n, code: pad(p.code), punch: digitsOf(p.code), ab: p.letter, pos: position, cells, arrows, pattern, side: p.side,
     });
   });
 
@@ -3753,8 +4078,8 @@ function exportPlaSheet() {
   const SIZE = 9;
   const COLX = { plate: 45, code: 82, punch: 114, ab: 162, pos: 192, ports: [262, 312, 362, 412], pattern: 452 };
   const CEN = { code: 93, punch: 128, ab: 170, pos: 210, pattern: 480, frame: 155 }; // header centres; frame = middle of the Code..Position headers
-  const THETA_W = 0.724; // Symbol "Q" (capital theta). If you switch to lowercase "q" in makeTextPdf, use 0.521
-  const WIDTH = { ' ': 0.278, O: 0.778, U: 0.722, '=': 0.584, '-': 0.333, '<': 0.584, '>': 0.584, I: 0.278, P: 0.667, E: 0.667, C: 0.722, A: 0.667, B: 0.667, M: 0.833, H: 0.722, T: 0.611, R: 0.722, F: 0.611, S: 0.667 }; // Helvetica widths (per 1 pt of size)
+  const THETA_W = 0.521; // Symbol "q" (lowercase theta). For the capital "Q" in makeTextPdf use 0.724
+  const WIDTH = { ' ': 0.278, O: 0.778, U: 0.722, '=': 0.584, '-': 0.333, '<': 0.584, '>': 0.584, I: 0.278, P: 0.667, E: 0.667, C: 0.722, A: 0.667, B: 0.667, M: 0.833, H: 0.722, T: 0.611, R: 0.722, F: 0.611, S: 0.667, N: 0.722, W: 0.944 }; // Helvetica widths (per 1 pt of size)
   const textWidth = (text) => [...text].reduce((sum, ch) => sum + (WIDTH[ch] || 0.556), 0) * SIZE;
   const centred = (font, text, centre, size) => add(centre - textWidth(text) * (size || SIZE) / SIZE / 2, size || SIZE, font, text);
   const header = () => {
@@ -3778,8 +4103,9 @@ function exportPlaSheet() {
     row.cells.forEach((cell, k) => { if (cell.trim()) centred('F1', cell, COLX.ports[k]); });
     row.arrows.forEach((arrow, k) => { if (arrow) centred('F1', arrow[0] === '-' ? '-' + arrow + '-' : arrow, (COLX.ports[k * 2] + COLX.ports[k * 2 + 1]) / 2); }); // hot dashes are narrow in Helvetica, so one more each side (---<---, as CAS prints it)
     if (row.kind === 'plate' && row.pattern) {
-      const w = textWidth(row.pattern) + (row.theta ? THETA_W * SIZE : 0);
-      items.push({ x: CEN.pattern - w / 2, y, size: SIZE, font: 'F1', text: row.pattern, theta: !!row.theta });
+      const suffix = row.side ? ' ' + row.side : ''; // gasket side (FlexFlow), printed after the theta
+      const w = textWidth(row.pattern) + (row.theta ? THETA_W * SIZE : 0) + textWidth(suffix);
+      items.push({ x: CEN.pattern - w / 2, y, size: SIZE, font: 'F1', text: row.pattern, theta: !!row.theta, suffix });
     }
     y -= 12;
   });
@@ -3827,6 +4153,7 @@ $('savesheet').addEventListener('click', exportPlaSheet);
    This file runs last. Everything it uses is defined in the files before it.
    ========================================================================== */
 
+let LOADED = null; // the last PLA file that was opened, kept as read so it can be restored after editing or building
 let PARSED = null; // the last PLA that was read (kept so changing a rule can re-run the conversion)
 
 /** Re-run the conversion for PARSED and redraw everything. */
@@ -3875,6 +4202,7 @@ $('file').addEventListener('change', async (e) => {
       status.textContent = `Loaded ${file.name} (old format)`;
       $('after').style.display = 'block';
       applyAll();
+      LOADED = { parsed: PARSED, status: `Loaded ${file.name} (old format)`, name: file.name, img: '', pages: '' };
       // Show every page of the original PLA in the Source panel for eyeballing.
       try {
         for (let n = 1; n <= pdf.doc.numPages; n++) {
@@ -3884,6 +4212,7 @@ $('file').addEventListener('change', async (e) => {
           img.style.cssText = 'width:100%;display:block;margin-bottom:6px;border:1px solid #ddd';
           $('p3pages').appendChild(img);
         }
+        LOADED.pages = $('p3pages').innerHTML;
       } catch (_) { /* the pictures are a nicety; ignore failures */ }
       return;
     }
@@ -3898,13 +4227,30 @@ $('file').addEventListener('change', async (e) => {
     status.textContent = 'Loaded ' + file.name;
     $('after').style.display = 'block';
     applyAll();
+    LOADED = { parsed: PARSED, status: 'Loaded ' + file.name, name: file.name, img: '', pages: '' };
     try {
       $('p3img').src = await pageToImage(pdf.doc, Math.min(3, pdf.doc.numPages), 1.8); // page 3 shows the plate sequence
+      LOADED.img = $('p3img').src;
     } catch (_) { /* ignore */ }
   } catch (err) {
     status.textContent = 'Could not read that PDF: ' + err.message;
     console.error(err);
   }
+});
+
+// ---- Restore loaded PLA: back to the file as it was opened (plate edits and built layouts are discarded) ----
+$('genrestore').addEventListener('click', () => {
+  const message = $('genmsg');
+  if (!LOADED) { message.style.color = '#b00'; message.textContent = 'No PLA file has been opened yet, so there is nothing to restore.'; return; }
+  PARSED = LOADED.parsed;
+  S.info = PARSED.info;
+  $('status').textContent = LOADED.status;
+  $('after').style.display = 'block';
+  applyAll();
+  if (LOADED.img) $('p3img').src = LOADED.img;
+  $('p3pages').innerHTML = LOADED.pages;
+  message.style.color = '';
+  message.textContent = 'Restored ' + LOADED.name + ' as it was opened.';
 });
 
 // ---- Conversion rules (new format) ----
@@ -3960,6 +4306,20 @@ $('strip').addEventListener('click', (e) => {
     S.sel = +group.dataset.i;
     render();
   }
+});
+
+// ---- Click empty space (or press Esc) to deselect the plate ----
+document.addEventListener('click', (e) => {
+  if (!S.sel) return;
+  const t = e.target;
+  if (!t || !t.closest) return;
+  if (t.closest('#editbar') || t.closest('.plt')) return;   // the edit bar itself, or a plate: leave it alone
+  if (!t.closest('#main')) return;                          // only the right-hand area counts as white space
+  S.sel = 0;
+  render();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && S.sel) { S.sel = 0; render(); }
 });
 
 // ---- Arrow keys step along the plates (ignored while typing in a dropdown) ----
