@@ -5,7 +5,7 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V3.2.4'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.3.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
@@ -2379,8 +2379,45 @@ function sideViewHtml() {
     ? (P.some((p) => p.side) ? 'Asymmetric (FlexFlow) plates, W and N as the PLA gives them.' : 'Assumed: all W. A T10 or T15 built here gets Wide plates by default.')
     : 'Symmetric plates.';
   return '<div class="bdh" style="margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Side view <span>Schematic. Frame plate on the left. Pink = hot channels, blue = cold. D / U = flow down / up, seen from the front.</span>'
-    + (canCompact ? `<button class="sec" id="sidetoggle" style="margin-left:auto">${full ? 'Compact view' : 'Full view'}</button>` : '') + '</div>'
+    + `<button class="sec" id="sidepng" style="margin-left:auto" title="Save the side view as it is showing now as a PNG">PNG</button>`
+    + (canCompact ? `<button class="sec" id="sidetoggle">${full ? 'Compact view' : 'Full view'}</button>` : '') + '</div>'
     + `<div style="padding:4px 4px 10px"><div style="overflow-x:auto">${svg}</div><div class="sub" style="margin:4px 0 0">${esc(kinds)} ${canCompact && !full ? 'Collapsed like the flow strip: the repeating plates are left out where the dots are.' : ''}</div></div>`;
+}
+
+/** The side view as a picture: {canvas, w, h, title, caption} for the view that is showing now, or null. */
+async function sideViewPicture(pixelsPerUnit) {
+  const html = sideViewHtml();
+  if (!html) return null;
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+  const svg = holder.querySelector('svg');
+  if (!svg) return null;
+  const [, , vw, vh] = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  const scale = Math.min(pixelsPerUnit, 15000 / vw);
+  svg.removeAttribute('style');
+  svg.setAttribute('width', vw * scale);
+  svg.setAttribute('height', vh * scale);
+  svg.setAttribute('font-family', 'Helvetica, Arial, sans-serif');
+  const canvas = await svgToCanvas(new XMLSerializer().serializeToString(svg), vw * scale, vh * scale);
+  const sub = holder.querySelectorAll('.sub');
+  return {
+    canvas, w: vw, h: vh,
+    title: (holder.querySelector('.bdh span') || {}).textContent || '',
+    caption: sub.length ? sub[sub.length - 1].textContent.trim() : '',
+  };
+}
+
+function exportSideViewPng() {
+  exportMessage('Making side view PNG...');
+  sideViewPicture(3)
+    .then((pic) => {
+      if (!pic) { exportMessage('There is no side view to save.'); return; }
+      pic.canvas.toBlob((blob) => {
+        download(blob, exportName(fileBase().replace(/_short$/, '') + '_side_view' + (S.sideFull ? '' : '_compact'), 'png'));
+        exportMessage('Side view PNG saved.');
+      }, 'image/png');
+    })
+    .catch((err) => exportMessage('Side view PNG failed: ' + err.message));
 }
 
 function renderBreakdown() {
@@ -2433,6 +2470,7 @@ function renderBreakdown() {
 
   el.innerHTML = html + '</div>' + sideViewHtml();
   el.style.display = 'block';
+  if ($('sidepng')) $('sidepng').onclick = exportSideViewPng;
   if ($('sidetoggle')) $('sidetoggle').onclick = () => { S.sideFull = !S.sideFull; renderBreakdown(); };
 }
 
@@ -2826,6 +2864,24 @@ function fileBase() {
   return ((S.info && S.info.model) || 'plate-layout').replace(/[^\w.-]+/g, '_') + (S.short ? '_short' : '');
 }
 
+/**
+ * Tag added to every exported file name: the plate count and the grouping, e.g. "35Plates_1x(10ML+7L)&1x(10MH+7L)".
+ * (A "/" cannot be used in a file name, so hot and cold are joined with "&" and "*" is written as "x".)
+ */
+function fileTag() {
+  const parts = [];
+  if (S.plates && S.plates.length) parts.push(S.plates.length + 'Plates');
+  const halves = String(groupingNow() || '').split(/\s*\/\s*|\s{2,}/).filter(Boolean)
+    .map((h) => h.replace(/\s+/g, '').replace(/\*/g, 'x').replace(/[\\/:?"<>|]/g, ''));
+  if (halves.length) parts.push(halves.join('&'));
+  return parts.join('_');
+}
+/** "<base>_<tag>.<ext>" */
+function exportName(base, ext) {
+  const tag = fileTag();
+  return base + (tag ? '_' + tag : '') + '.' + ext;
+}
+
 /** Trigger a browser download of a Blob. */
 function download(blob, name) {
   const a = document.createElement('a');
@@ -2894,7 +2950,7 @@ function exportSvg() {
   const el = $('stripsvg');
   if (!el) return;
   const box = el.viewBox.baseVal;
-  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), fileBase() + '.svg');
+  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), exportName(fileBase(), 'svg'));
 }
 
 function exportPng() {
@@ -2907,7 +2963,7 @@ function exportPng() {
   exportMessage('Making PNG...');
   svgToCanvas(svgText(el, 0, 0, box.width, box.height, w, h), w, h)
     .then((canvas) => canvas.toBlob((blob) => {
-      download(blob, fileBase() + '.png');
+      download(blob, exportName(fileBase(), 'png'));
       exportMessage('PNG saved.');
     }, 'image/png'))
     .catch((err) => exportMessage('PNG failed: ' + err.message));
@@ -2919,7 +2975,7 @@ function exportPdf() {
   exportMessage('Making PDF...');
   makePdf(el)
     .then((blob) => {
-      download(blob, fileBase() + '.pdf');
+      download(blob, exportName(fileBase(), 'pdf'));
       exportMessage('PDF saved.');
     })
     .catch((err) => exportMessage('PDF failed: ' + err.message));
@@ -2931,13 +2987,11 @@ function pdfEscape(t) {
 }
 
 /**
- * Build the PDF file by hand (no library).
- * Layout: landscape Letter (792 x 612 pt). The strip is cut on plate boundaries into ROWS
- * (like the old paper charts), and the rows are stacked on each page, PDF_PAGE.rowsPerPage per page.
- * Page 1 also gets the key (legend) in the top-right corner.
- * Objects: 1 catalog, 2 page tree, 3/4 fonts, then page + content + row images (+ key image) per page.
+ * Lay the strip out as pages of rows (landscape Letter), each row a JPEG of a slice of the strip, plus the key image.
+ * Used by the strip PDF and by the PLA sheet, which carries the same pages.
+ * Returns {PAGE_W, PAGE_H, MARGIN, TOP, pages: [{rows: [{data, w, h, pw, ph, y}]}], legendImage, title, subtitle1, subtitle2}.
  */
-async function makePdf(el) {
+async function flowChartLayout(el) {
   const box = el.viewBox.baseVal;
   const W = box.width;
   const H = box.height;
@@ -3064,6 +3118,29 @@ async function makePdf(el) {
     y += row.ph + ROW_GAP;
   });
   const pageCount = pages.length;
+  // Page header text (the same on every page).
+  const info = S.info || {};
+  const title = (info.model || 'Plate layout') + (info.projectRef ? '  -  ' + info.projectRef : '');
+  const subtitle1 = [info.lineRef, groupingNow() && 'Grouping ' + groupingNow()].filter(Boolean).join('   |   ');
+  const subtitle2 = [
+    `Hot ${S.flow.hot.i} > ${S.flow.hot.o}   Cold ${S.flow.cold.i} > ${S.flow.cold.o}`,
+    S.plates.length + ' plates',
+    S.short ? 'Short view' : 'Full view',
+  ].join('   |   ');
+ 
+  return { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2 };
+}
+
+/**
+ * Build the PDF file by hand (no library).
+ * Layout: landscape Letter (792 x 612 pt). The strip is cut on plate boundaries into ROWS
+ * (like the old paper charts), and the rows are stacked on each page, PDF_PAGE.rowsPerPage per page.
+ * Page 1 also gets the key (legend) in the top-right corner.
+ * Objects: 1 catalog, 2 page tree, 3/4 fonts, then page + content + row images (+ key image) per page.
+ */
+async function makePdf(el) {
+  const { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2 } = await flowChartLayout(el);
+  const pageCount = pages.length;
  
   // ---- Low-level PDF writing helpers ----
   const encoder = new TextEncoder();
@@ -3102,16 +3179,6 @@ async function makePdf(el) {
   object(2, `<< /Type /Pages /Kids [${ids.map((o) => o.page + ' 0 R').join(' ')}] /Count ${pageCount} >>`);
   object(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   object(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
- 
-  // Page header text (the same on every page).
-  const info = S.info || {};
-  const title = (info.model || 'Plate layout') + (info.projectRef ? '  -  ' + info.projectRef : '');
-  const subtitle1 = [info.lineRef, groupingNow() && 'Grouping ' + groupingNow()].filter(Boolean).join('   |   ');
-  const subtitle2 = [
-    `Hot ${S.flow.hot.i} > ${S.flow.hot.o}   Cold ${S.flow.cold.i} > ${S.flow.cold.o}`,
-    S.plates.length + ' plates',
-    S.short ? 'Short view' : 'Full view',
-  ].join('   |   ');
  
   pages.forEach((pg, i) => {
     const id = ids[i];
@@ -3890,11 +3957,16 @@ function makeTextPdf(pages) {
   const chunks = [];
   const offsets = [];
   let position = 0;
-  const putText = (t) => { const bytes = encoder.encode(t); chunks.push(bytes); position += bytes.length; };
+  const put = (bytes) => { chunks.push(bytes); position += bytes.length; };
+  const putText = (t) => put(encoder.encode(t));
   const object = (id, body) => { offsets[id] = position; putText(`${id} 0 obj\n${body}\nendobj\n`); };
+  const bytesOf = (dataUrl) => { const bin = atob(dataUrl.split(',')[1]); const out = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k); return out; };
 
   putText('%PDF-1.4\n');
-  const pageIds = pages.map((_, i) => 7 + i * 2);
+  // A page is a list of text items; it may carry .meta = {w, h, footerX, images: [{data, w, h, x, y, pw, ph}]} (page size, page-number position, JPEG pictures).
+  let nextId = 7;
+  const alloc = pages.map((items) => ({ page: nextId++, content: nextId++, images: ((items.meta && items.meta.images) || []).map(() => nextId++) }));
+  const pageIds = alloc.map((o) => o.page);
   object(1, '<< /Type /Catalog /Pages 2 0 R >>');
   object(2, `<< /Type /Pages /Kids [${pageIds.map((id) => id + ' 0 R').join(' ')}] /Count ${pages.length} >>`);
   object(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
@@ -3902,12 +3974,21 @@ function makeTextPdf(pages) {
   object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>');
   object(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>'); // F4: "Q" is a capital theta
   pages.forEach((items, i) => {
-    const content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (q) Tj` : ''}${t.suffix ? ` /${t.font} ${t.size} Tf (${pdfEscape(t.suffix)}) Tj` : ''} ET`).join('\n') + '\n'
-      + `BT /F1 8 Tf 520 24 Td (Page ${i + 1} of ${pages.length}) Tj ET\n`;
-    object(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageIds[i] + 1} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>`);
+    const meta = items.meta || {};
+    let content = items.map((t) => `BT /${t.font} ${t.size} Tf ${t.x} ${t.y} Td (${pdfEscape(t.text)}) Tj${t.theta ? ` /F4 ${t.size} Tf (q) Tj` : ''}${t.suffix ? ` /${t.font} ${t.size} Tf (${pdfEscape(t.suffix)}) Tj` : ''} ET`).join('\n') + '\n'
+      + `BT /F1 8 Tf ${meta.footerX || 520} 24 Td (Page ${i + 1} of ${pages.length}) Tj ET\n`;
+    (meta.images || []).forEach((im, k) => { content += `q ${im.pw.toFixed(2)} 0 0 ${im.ph.toFixed(2)} ${im.x.toFixed(2)} ${im.y.toFixed(2)} cm /Im${k} Do Q\n`; });
+    const xo = (meta.images || []).map((im, k) => `/Im${k} ${alloc[i].images[k]} 0 R`).join(' ');
+    object(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${meta.w || 612} ${meta.h || 792}] /Contents ${pageIds[i] + 1} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> /XObject << ${xo} >> >> >>`);
     object(pageIds[i] + 1, `<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream`);
+    (meta.images || []).forEach((im, k) => {
+      const bytes = bytesOf(im.data);
+      offsets[alloc[i].images[k]] = position;
+      putText(`${alloc[i].images[k]} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`);
+      put(bytes);
+      putText('\nendstream\nendobj\n');
+    });
   });
-  const nextId = 7 + pages.length * 2;
   const xrefStart = position;
   putText(`xref\n0 ${nextId}\n0000000000 65535 f \n`);
   for (let k = 1; k < nextId; k++) putText(String(offsets[k]).padStart(10, '0') + ' 00000 n \n');
@@ -4030,8 +4111,9 @@ function plateListRows(P, info, turns, flow) {
   return rows;
 }
 
-function exportPlaSheet() {
+async function exportPlaSheet() {
   if (!S.plates.length) return;
+  exportMessage('Making PLA sheet...');
   const { info, passes, turns, f, rows, P, list, groupingText } = plaSheetData();
   const built = !!(PARSED && PARSED.generated);
   const TOP = 750;
@@ -4135,7 +4217,35 @@ function exportPlaSheet() {
   add(45, 9, 'F2', 'Total plates: ' + P.length);
   y -= 13;
 
-  // ---- Assumptions go on their own page at the very end ----
+  // ---- The flow chart pages, the same pages as the strip PDF ----
+  try {
+    // The sheet always carries the full unit, whichever view the strip is in: draw it in full view, then put the view back.
+    const wasShort = S.short;
+    if (wasShort) { S.short = false; render(); }
+    let L = null;
+    try {
+      const el = $('stripsvg');
+      if (el) L = await flowChartLayout(el);
+    } finally {
+      if (wasShort) { S.short = true; render(); }
+    }
+    if (L) {
+      L.pages.forEach((pg) => {
+        const page = [];
+        const text = (x, yy, size, font, t) => page.push({ x, y: yy, size, font, text: t });
+        text(L.MARGIN, L.PAGE_H - L.TOP - 10, 13, 'F2', L.title);
+        text(L.MARGIN, L.PAGE_H - L.TOP - 24, 8.5, 'F1', L.subtitle1);
+        text(L.MARGIN, L.PAGE_H - L.TOP - 36, 8.5, 'F1', L.subtitle2);
+        const images = [];
+        if (pg === L.pages[0] && L.legendImage) images.push({ data: L.legendImage.data, w: L.legendImage.w, h: L.legendImage.h, pw: L.legendImage.pw, ph: L.legendImage.ph, x: L.PAGE_W - L.MARGIN - L.legendImage.pw, y: L.PAGE_H - L.TOP - L.legendImage.ph });
+        pg.rows.forEach((row) => images.push({ data: row.data, w: row.w, h: row.h, pw: row.pw, ph: row.ph, x: L.MARGIN, y: L.PAGE_H - row.y - row.ph }));
+        page.meta = { w: L.PAGE_W, h: L.PAGE_H, footerX: L.PAGE_W - L.MARGIN - 50, images };
+        pages.push(page);
+      });
+    }
+  } catch (err) { console.error(err); }
+
+  // ---- Assumptions go on their own page, just before the side view ----
   if (built) {
     newPage(); // the assumptions get a page of their own at the very end
     add(45, 11, 'F2', 'What this draft assumes');
@@ -4151,7 +4261,30 @@ function exportPlaSheet() {
     });
   }
 
-  download(makeTextPdf(pages), fileBase().replace(/_short$/, '') + '_PLA_sheet.pdf');
+  // ---- The side view is the last page, as it is showing now ----
+  try {
+    const pic = await sideViewPicture(3);
+    if (pic) {
+      const PW = 792;
+      const PH = 612;
+      const M = 36;
+      const page = [];
+      page.push({ x: M, y: PH - 46, size: 13, font: 'F2', text: 'Side view - ' + ((S.info && S.info.model) || 'Plate layout') });
+      wrapText(pic.title, 150).forEach((line, k) => page.push({ x: M, y: PH - 62 - k * 11, size: 8.5, font: 'F1', text: line }));
+      const maxW = PW - 2 * M;
+      const maxH = PH - 100 - 70;
+      const k = Math.min(maxW / pic.w, maxH / pic.h);
+      const pw = pic.w * k;
+      const ph = pic.h * k;
+      const top = PH - 90;
+      const jpeg = pic.canvas.toDataURL('image/jpeg', 0.93);
+      wrapText(pic.caption, 150).forEach((line, j) => page.push({ x: M, y: top - ph - 16 - j * 11, size: 8.5, font: 'F1', text: line }));
+      page.meta = { w: PW, h: PH, footerX: PW - M - 50, images: [{ data: jpeg, w: pic.canvas.width, h: pic.canvas.height, pw, ph, x: M + (maxW - pw) / 2, y: top - ph }] };
+      pages.push(page);
+    }
+  } catch (err) { console.error(err); }
+
+  download(makeTextPdf(pages), exportName(fileBase().replace(/_short$/, '') + '_PLA_sheet', 'pdf'));
   exportMessage('PLA sheet saved.');
 }
 $('savesheet').addEventListener('click', exportPlaSheet);
