@@ -5,7 +5,7 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V3.2.3'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.2.4'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
@@ -3193,17 +3193,26 @@ function normType(text) {
  * chanType(j) = type of channel j (1 .. N-1, between plate j and j+1). Returns an array (index 0 = plate 1) or null.
  */
 function stackThetas(N, chanType) {
-  const out = [];
-  let prev;
+  const out = new Array(N).fill(0);
+  const around = [];
   for (let n = 1; n <= N; n++) {
-    const around = [n > 1 ? chanType(n - 1) : null, n < N ? chanType(n) : null].filter((t) => t !== null);
-    if (around.some((t) => !t)) return null;
-    const pure = around.find((t) => t[0] !== 'M');
-    let th;
-    if (pure) th = pure[0] === 'H' ? 2 : 1;
-    else th = n === 1 ? (around[0] === 'ML' ? 2 : 1) : 3 - prev;
-    out.push(th);
-    prev = th;
+    around[n] = [n > 1 ? chanType(n - 1) : null, n < N ? chanType(n) : null].filter((t) => t !== null);
+    if (around[n].some((t) => !t)) return null;
+    const pure = around[n].find((t) => t[0] !== 'M');
+    if (pure) out[n - 1] = pure[0] === 'H' ? 2 : 1;
+  }
+  // Runs of plates that only touch M channels alternate Low / High. A run next to an H / L zone is counted out from that
+  // zone's plate (so an M zone that ends against an L zone always finishes with the opposite theta); a stack that is
+  // M all the way starts from plate 1: Low for MH (and a plain M, MNa, MWi), High for ML.
+  let n = 1;
+  while (n <= N) {
+    if (out[n - 1]) { n++; continue; }
+    let e = n;
+    while (e + 1 <= N && !out[e]) e++;
+    if (n > 1) for (let k = n; k <= e; k++) out[k - 1] = 3 - out[k - 2];
+    else if (e < N) for (let k = e; k >= 1; k--) out[k - 1] = 3 - out[k];
+    else for (let k = 1; k <= N; k++) out[k - 1] = k === 1 ? (around[1][0] === 'ML' ? 2 : 1) : 3 - out[k - 2];
+    n = e + 1;
   }
   return out;
 }
