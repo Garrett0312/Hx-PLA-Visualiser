@@ -5,7 +5,7 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V3.6.3'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.7.3'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
@@ -2074,7 +2074,7 @@ function render(target) {
   const frameHoles = holeColors(G, 0);
   plates += plateSvg(slot[0], 'A', '#fff', { frame: true, holes: frameHoles, nums: [4, 1, 3, 2] });
   text += txt(slot[0].x + 13.5, TY, 'Frame', 8, 'middle', '#555');
-  if (S.cmp) text += txt(slot[0].x + 13.5, Y - 34, 'From original', 6.5, 'middle', '#555') + txt(slot[0].x + 13.5, Y - 26, 'Plate Pack', 6.5, 'middle', '#555');
+  if (S.cmp) text += txt(slot[0].x + 13.5, Y - 10, 'Orig. no.', 6.5, 'middle', '#555');
   [4, 1, 3, 2].forEach((portNumber, corner) => {
     if (!frameHoles[corner]) return;
     text += `<text x="${slot[0].x + PORT_X[corner]}" y="${Y + SHEARED_PORT.y[corner] + 1.8}" font-size="5.5" font-weight="bold" text-anchor="middle" font-family="Arial" fill="#111">${portNumber}</text>`;
@@ -2150,11 +2150,11 @@ function render(target) {
     }
 
     // Comparison: the plate's number in the original pack, above it (nothing above a new plate).
-    if (cmpId) text += txt(s0.x + 13.5, Y - 26, String(cmpId), 8.5, 'middle', '#555');
+    if (cmpId) text += txt(s0.x + 13.5, Y - 10, String(cmpId), 8.5, 'middle', '#555');
 
     // Role label above the plate ("End II", "Turning" ...).
     const role = roleLabel(plate);
-    if (role) text += txt(s0.x + 13.5, Y - 10, role, 6.5, 'middle', '#555');
+    if (role && !cmpId) text += txt(s0.x + 13.5, Y - 10, role, 6.5, 'middle', '#555'); // in the comparison view the original number takes this spot
 
     // A small tick every 10 plates.
     if (i % 10 === 0) {
@@ -3234,7 +3234,8 @@ async function flowChartLayout(el) {
   const PAGE_H = 612;
   const { margin: MARGIN, slotsPerRow, rowsPerPage, keyScale, rowGap: ROW_GAP, breakArrowSize } = PDF_PAGE;
   const TOP = 30;              // space above the title
-  const BOTTOM = 36;           // space kept free at the bottom (page number)
+  const COMPARE = isModActive(); // modified pack: a little less margin so three rows still fit on a page
+  const BOTTOM = COMPARE ? 28 : 36; // space kept free at the bottom (page number)
   const PIXELS_PER_UNIT = 5;   // image resolution
   const usableW = PAGE_W - 2 * MARGIN;
  
@@ -3286,7 +3287,8 @@ async function flowChartLayout(el) {
         }
       }
     }
-    return [Math.max(0, first - 4), Math.min(H, last + 4)];
+    const pad = COMPARE ? 1.5 : 4;
+    return [Math.max(0, first - pad), Math.min(H, last + pad)];
   };
  
   // ---- The key image for page 1 ----
@@ -3309,6 +3311,20 @@ async function flowChartLayout(el) {
   // the end of one row and the start of the next both show the line carrying on.
   const joinsBetween = (a, b) => (S.joins || []).filter((j) => j.prev === a.item && j.i === b.item);
   const lineSvg = (x1, x2, j) => `<line x1="${x1}" y1="${j.y}" x2="${x2}" y2="${j.y}" stroke="${j.color}" stroke-width="${FLOW_LINE_WIDTH}"/>`;
+  // Which rows start a page (decided from the row heights first, so a thin divider can go above every row that is not the first on its page).
+  const heights = geo.map((g) => { const [a, b] = inkRange(g.isFirst ? g.left : g.first.x, g.isLast ? g.right : g.last.x + PLATE_RIGHT); return (b - a) * (g.right - g.left > 0 ? PPU : 0); });
+  const startsPage = new Set();
+  {
+    const headerB = TOP + (isModActive() ? 54 : 44);
+    const firstT = Math.max(headerB, (legendImage ? TOP + legendImage.ph : 0)) + 6;
+    let yy = 0;
+    let count = 0;
+    heights.forEach((ph, r) => {
+      if (r === 0 || count >= rowsPerPage || yy + ph > PAGE_H - BOTTOM) { startsPage.add(r); count = 0; yy = (r === 0 ? firstT : headerB + 6); }
+      count++;
+      yy += ph + ROW_GAP;
+    });
+  }
   const rows = [];
   for (let r = 0; r < geo.length; r++) {
     const g = geo[r];
@@ -3323,6 +3339,12 @@ async function flowChartLayout(el) {
         extra += lineSvg(g.left, edge, j) + arrow(g.left + 12, j.y, j.dir, j.color, breakArrowSize);
       });
     }
+    if (COMPARE && !startsPage.has(r)) { // a thin divider above every row that is not the first on its page
+      extra += `<line x1="${g.left}" y1="${y0 + 0.8}" x2="${g.right}" y2="${y0 + 0.8}" stroke="#a0a0a0" stroke-width="0.9"/>`;
+    }
+    if (COMPARE && !g.isFirst) { // modified pack: say what the numbers above this row are (row 1 has it above the frame plate)
+      extra += `<text x="${g.first.x - 16}" y="${STRIP.plateY - 10}" font-size="6.5" text-anchor="middle" fill="#555" font-family="Arial, Helvetica, sans-serif">Orig. no.</text>`;
+    }
     if (!g.isLast) { // end of a row: hide the start of the next row, draw the outgoing stubs
       const edge = g.last.x + PLATE_RIGHT;
       extra += `<rect x="${edge}" y="${y0 - 1}" width="${g.right - edge + 2}" height="${h + 2}" fill="#fff"/>`;
@@ -3336,7 +3358,8 @@ async function flowChartLayout(el) {
   }
  
   // ---- Deal the rows out to pages: up to rowsPerPage per page, and only if they fit ----
-  const headerBottom = TOP + 44; // title + two subtitle lines
+  const note = isModActive() ? 'Grey outline = plate reused from the previous pack.  Green outline = new plate added to the pack.' : '';
+  const headerBottom = TOP + (note ? 54 : 44); // title + two subtitle lines (+ the outline note)
   const firstTop = Math.max(headerBottom, legendImage ? TOP + legendImage.ph : 0) + 6; // page 1: key sits beside the title
   const laterTop = headerBottom + 6;
   const pages = [];
@@ -3363,7 +3386,7 @@ async function flowChartLayout(el) {
     S.short ? 'Short view' : 'Full view',
   ].join('   |   ');
  
-  return { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2 };
+  return { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2, note };
 }
 
 /**
@@ -3374,7 +3397,7 @@ async function flowChartLayout(el) {
  * Objects: 1 catalog, 2 page tree, 3/4 fonts, then page + content + row images (+ key image) per page.
  */
 async function makePdf(el) {
-  const { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2 } = await flowChartLayout(el);
+  const { PAGE_W, PAGE_H, MARGIN, TOP, pages, legendImage, title, subtitle1, subtitle2, note } = await flowChartLayout(el);
   const pageCount = pages.length;
  
   // ---- Low-level PDF writing helpers ----
@@ -3419,7 +3442,8 @@ async function makePdf(el) {
     const id = ids[i];
     let content = `BT /F2 13 Tf ${MARGIN} ${PAGE_H - TOP - 10} Td (${pdfEscape(title)}) Tj ET\n`
       + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - TOP - 24} Td (${pdfEscape(subtitle1)}) Tj ET\n`
-      + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - TOP - 36} Td (${pdfEscape(subtitle2)}) Tj ET\n`;
+      + `BT /F1 8.5 Tf ${MARGIN} ${PAGE_H - TOP - 36} Td (${pdfEscape(subtitle2)}) Tj ET\n`
+      + (note ? `BT /F2 8 Tf ${MARGIN} ${PAGE_H - TOP - 48} Td (${pdfEscape(note)}) Tj ET\n` : '');
     let xobjects = '';
  
     if (id.legend) {
@@ -4516,6 +4540,7 @@ async function exportPlaSheetNow() {
         text(L.MARGIN, L.PAGE_H - L.TOP - 10, 13, 'F2', L.title);
         text(L.MARGIN, L.PAGE_H - L.TOP - 24, 8.5, 'F1', L.subtitle1);
         text(L.MARGIN, L.PAGE_H - L.TOP - 36, 8.5, 'F1', L.subtitle2);
+        if (L.note) text(L.MARGIN, L.PAGE_H - L.TOP - 48, 8, 'F2', L.note);
         const images = [];
         if (pg === L.pages[0] && L.legendImage) images.push({ data: L.legendImage.data, w: L.legendImage.w, h: L.legendImage.h, pw: L.legendImage.pw, ph: L.legendImage.ph, x: L.PAGE_W - L.MARGIN - L.legendImage.pw, y: L.PAGE_H - L.TOP - L.legendImage.ph });
         pg.rows.forEach((row) => images.push({ data: row.data, w: row.w, h: row.h, pw: row.pw, ph: row.ph, x: L.MARGIN, y: L.PAGE_H - row.y - row.ph }));
