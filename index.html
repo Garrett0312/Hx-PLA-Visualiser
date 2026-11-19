@@ -5,7 +5,7 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V3.3.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.5.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
@@ -281,8 +281,10 @@ tr.chg td {
             <input type="file" id="file" accept="application/pdf" />
             <button id="genopen" title="Build a layout from a grouping, plate types and nozzles instead of reading a PLA">Build PLA &#9662;</button>
           </div>
+          <div id="modtop" style="margin-top: 8px; display: none; justify-content: flex-end"><button class="sec" id="modpack" title="Keep this plate pack as the original and design a modified one next to it (available once a PLA is loaded or built)">Modify Plate Pack</button></div>
           <div id="status" class="sub" style="margin-top: 8px"></div>
           <div id="genpanel" style="display: none; margin-top: 10px; border-top: 1px solid #ddd; padding-top: 8px">
+            <div id="genconf">
             <div class="row"><input id="genname" type="text" placeholder="Unit model (optional), e.g. T10-BFG" style="width: 100%" /></div>
             <div id="genunit" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
               <select id="genser" title="Unit series" style="height: 28px"></select>
@@ -323,11 +325,27 @@ tr.chg td {
                 </g>
               </svg>
             </div>
+            <div class="row" id="genwnrow" style="display:none;margin-top:6px;align-items:center;gap:8px"><button class="sec" id="genwn" data-side="W" title="T10 / T15 only: the plates of the built layout are all Wide or all Narrow (a FlexFlow plate is turned over and its gasket moved)">Wide</button><span class="sub">T10 / T15 plate side</span></div>
             <div id="gennote" class="sub" style="margin-top: 6px; color: #9a5b00; font-weight: 600"></div>
-            <div class="row" style="margin-top: 8px"><button id="genbuild">Build layout</button></div>
+            </div><!-- /genconf: copied for the modified plate pack -->
+            <div class="row" id="genrow" style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap"><button id="genbuild">Build layout</button></div>
             <div class="row" style="margin-top: 6px"><button class="sec" id="genfill" title="Fill the boxes above from the PLA that is loaded now, including any plate edits you made">Fill from loaded PLA</button> <button class="sec" id="genrestore" title="Put the PLA back exactly as it was when you opened the file, undoing plate edits and built layouts, and refill the boxes">Restore loaded PLA</button></div>
             <div id="genmsg" class="sub" style="margin-top: 6px"></div>
           </div>
+          <div id="modsection" style="display: none; margin-top: 12px; border-top: 2px solid #1f4fd8; padding-top: 8px">
+              <div style="font-weight: 600; margin-bottom: 6px">Modified plate pack</div>
+              <div id="modunitnote" class="sub" style="margin-bottom: 6px"></div>
+              <div style="margin-bottom: 8px"><div class="sub" style="margin-bottom: 3px">Load a second PLA to compare (same unit as the first), or describe the pack below:</div><input type="file" id="modfile" accept="application/pdf" /></div>
+              <div id="modconf"></div>
+              <div class="row" style="margin-top: 8px"><button id="modbuild">Build modified pack</button></div>
+              <div id="modmsg" class="sub" style="margin-top: 6px"></div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px">
+                <button class="sec" id="cmppacks" title="List the plates to order: the modified pack minus the plates the original pack can supply">Compare plate packs</button>
+                <button class="sec" id="cmpshow" title="Draw the modified pack with the reused original plates outlined grey and the new plates outlined green">Show Plate Pack + New Plates</button>
+                <button class="sec" id="cmpreset" title="Clear the modified plate pack and the comparison, and turn Modify Plate Pack off">Reset</button>
+              </div>
+              <div id="cmpmsg" class="sub" style="margin-top: 6px"></div>
+            </div>
         </div>
 
         <!-- Everything below stays hidden until a PDF has been loaded -->
@@ -425,6 +443,7 @@ tr.chg td {
         <div id="legendbox" style="display: none"></div> <!-- the key above the strip -->
         <div id="editbar" style="display: none"></div> <!-- selected-plate editor, short view, zoom -->
         <div id="strip"></div> <!-- the scrolling SVG -->
+        <div id="comparebox" style="display: none"></div> <!-- plate pack comparison: plates to order -->
         <div id="breakdown" style="display: none"></div> <!-- Plate I / II / III cards -->
 
         <!-- New format: page 3 of the PDF. Old format: every page of the PDF. -->
@@ -1709,7 +1728,7 @@ function plateSvg(pos, letter, fill, o) {
 
   // The plate body.
   const outline = isBlue ? 1.1 : o.ghost ? 0.8 : 1.1;
-  g += `<rect x=".4" y=".6" width="26.6" height="40.5" rx="3.2" fill="${isBlue ? '#2b2bd6' : fill}" stroke="#111" stroke-width="${outline}"${o.dash ? ' stroke-dasharray="2.6 1.8"' : ''}/>`;
+  g += `<rect x=".4" y=".6" width="26.6" height="40.5" rx="3.2" fill="${isBlue ? '#2b2bd6' : fill}" stroke="${o.edge ? o.edge.color : '#111'}" stroke-width="${o.edge ? o.edge.w : outline}"${o.dash ? ' stroke-dasharray="2.6 1.8"' : ''}/>`;
 
   // The four port holes (frame/pressure plates only show holes that are connected).
   for (let i = 0; i < 4; i++) {
@@ -1950,6 +1969,7 @@ function holeColors(G, item) {
 }
 
 function render() {
+  S.cmp = S.cmpShow ? comparePacks() : null; // grey / green outlines only while the comparison is shown
   const G = analyse();
   const P = S.plates;
   const M = P.length;
@@ -2050,6 +2070,7 @@ function render() {
   const frameHoles = holeColors(G, 0);
   plates += plateSvg(slot[0], 'A', '#fff', { frame: true, holes: frameHoles, nums: [4, 1, 3, 2] });
   text += txt(slot[0].x + 13.5, TY, 'Frame', 8, 'middle', '#555');
+  if (S.cmp) text += txt(slot[0].x + 13.5, Y - 34, 'From original', 6.5, 'middle', '#555') + txt(slot[0].x + 13.5, Y - 26, 'Plate Pack', 6.5, 'middle', '#555');
   [4, 1, 3, 2].forEach((portNumber, corner) => {
     if (!frameHoles[corner]) return;
     text += `<text x="${slot[0].x + PORT_X[corner]}" y="${Y + SHEARED_PORT.y[corner] + 1.8}" font-size="5.5" font-weight="bold" text-anchor="middle" font-family="Arial" fill="#111">${portNumber}</text>`;
@@ -2088,7 +2109,9 @@ function render() {
 
     // The plate drawing, with its flow arrow from port to port.
     const repeat = repOf[i]; // set when this plate stands in for a collapsed run
-    let one = plateSvg(s0, plate.letter, tint, { holes: holeColors(G, i), diamond, dash: !!repeat, theta: plate.theta });
+    const cmpId = S.cmp ? S.cmp.assign[i - 1] : undefined; // original plate number this plate came from, 0 = new
+    const cmpEdge = cmpId === undefined ? null : cmpId ? { color: '#8c8c8c', w: 2.6 } : { color: '#1fc21f', w: 2.6 };
+    let one = plateSvg(s0, plate.letter, tint, { holes: holeColors(G, i), diamond, dash: !!repeat, theta: plate.theta, edge: cmpEdge });
     if (edge && edge.from) {
       one += plateFlowArrow(portX(i, edge.from), portY(i, edge.from), portX(i, edge.to), portY(i, edge.to), COL[edge.fluid], FLOW_LINE_WIDTH);
     }
@@ -2121,6 +2144,9 @@ function render() {
       const label = repeat ? `${repeat.a}…${repeat.b}` : i + (plate.added ? '*' : '');
       text += txt(s0.x + 13.5, Y + 64, label, repeat ? 5.5 : 6.5, 'middle', plate.added ? '#c60' : '#888');
     }
+
+    // Comparison: the plate's number in the original pack, above it (nothing above a new plate).
+    if (cmpId) text += txt(s0.x + 13.5, Y - 26, String(cmpId), 8.5, 'middle', '#555');
 
     // Role label above the plate ("End II", "Turning" ...).
     const role = roleLabel(plate);
@@ -2162,6 +2188,8 @@ function render() {
   renderTable();
   renderBreakdown();
   renderInfo(); // plate count and grouping follow the edits
+  renderCompare();
+  updateModButton();
 }
 
 
@@ -2196,7 +2224,8 @@ function breakdownPlatePicture(digits, isDiamondPlate, theta) {
  * a T10 or T15 gets Wide plates by default.
  */
 function defaultSide() {
-  return PARSED && PARSED.generated && /^\s*T(10|15)\b/i.test(String((S.info && S.info.model) || '')) ? 'W' : '';
+  if (!(PARSED && PARSED.generated && /^\s*T(10|15)\b/i.test(String((S.info && S.info.model) || '')))) return '';
+  return S.info && S.info.flexSide === 'N' ? 'N' : 'W';
 }
 /** The strip and the plate editor only show N / W when the grouping itself uses Na / Wi plate types. */
 function groupingHasSides() {
@@ -2376,12 +2405,12 @@ function sideViewHtml() {
   const svg = `<svg viewBox="0 0 ${width.toFixed(0)} ${top + H + 28}" xmlns="http://www.w3.org/2000/svg" style="${full && canCompact ? `width:${Math.round(width * 1.25)}px;max-width:none` : `width:100%;max-width:${Math.round(width * 1.5)}px`};height:auto;font-family:inherit"><defs>${defs}</defs>${frame}${pressure}${fills}${lines}${labels}</svg>`;
 
   const kinds = P.some((p) => sideOf(p))
-    ? (P.some((p) => p.side) ? 'Asymmetric (FlexFlow) plates, W and N as the PLA gives them.' : 'Assumed: all W. A T10 or T15 built here gets Wide plates by default.')
+    ? (P.some((p) => p.side) ? 'Asymmetric (FlexFlow) plates, W and N as the PLA gives them.' : `Assumed: all ${defaultSide() === 'N' ? 'N' : 'W'}.`)
     : 'Symmetric plates.';
   return '<div class="bdh" style="margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Side view <span>Schematic. Frame plate on the left. Pink = hot channels, blue = cold. D / U = flow down / up, seen from the front.</span>'
     + `<button class="sec" id="sidepng" style="margin-left:auto" title="Save the side view as it is showing now as a PNG">PNG</button>`
     + (canCompact ? `<button class="sec" id="sidetoggle">${full ? 'Compact view' : 'Full view'}</button>` : '') + '</div>'
-    + `<div style="padding:4px 4px 10px"><div style="overflow-x:auto">${svg}</div><div class="sub" style="margin:4px 0 0">${esc(kinds)} ${canCompact && !full ? 'Collapsed like the flow strip: the repeating plates are left out where the dots are.' : ''}</div></div>`;
+    + `<div style="padding:4px 4px 10px"><div style="overflow-x:auto">${svg}</div><div class="sub" style="margin:4px 0 0">${esc(kinds)} ${canCompact && !full ? 'The repeating plates are left out where the dots are.' : ''}</div></div>`;
 }
 
 /** The side view as a picture: {canvas, w, h, title, caption} for the view that is showing now, or null. */
@@ -2512,7 +2541,7 @@ function renderEditBar() {
   const selected = S.sel;
 
   const controls =
-    `<label style="margin-left:auto;margin-right:12px;white-space:nowrap"><input id="shortv" type="checkbox"${S.short ? ' checked' : ''} style="vertical-align:middle"> Short view (collapse repeats)</label>`
+    `<label style="margin-left:auto;margin-right:12px;white-space:nowrap"><input id="shortv" type="checkbox"${S.short ? ' checked' : ''}${S.cmpShow ? ' disabled title="The new-plates view always shows every plate"' : ''} style="vertical-align:middle"> Short view (collapse repeats)</label>`
     + `<label style="white-space:nowrap">Zoom <input id="zoom" type="range" min="${ZOOM.min}" max="${ZOOM.max}" step="${ZOOM.step}" value="${S.zoom || ZOOM.start}" style="vertical-align:middle"></label>`;
 
   if (!selected) {
@@ -2673,8 +2702,20 @@ function groupingNow() {
 }
 
 // ---- Fill the Build PLA boxes from the layout that is loaded ----
-function fillBuilderFromLayout() {
-  const message = $('genmsg');
+/** The side a pack shows: the printed N / W plates by majority, otherwise what a built layout was given. */
+function packSide(plates, info) {
+  const nN = plates.filter((p) => p.side === 'N').length;
+  const nW = plates.filter((p) => p.side === 'W').length;
+  return nN + nW ? (nN > nW ? 'N' : 'W') : (info && info.flexSide) || 'W';
+}
+
+function fillBuilderFromLayout(prefix = 'gen') {
+  const was = GP;
+  useBuilder(prefix);
+  try { return fillBuilderBody(prefix); } finally { if (prefix !== 'gen') useBuilder(was); }
+}
+function fillBuilderBody(prefix) {
+  const message = $(prefix + 'msg');
   const cg = currentGrouping();
   const say = (text, bad) => { message.style.color = bad ? '#b00' : ''; message.textContent = text; };
   if (!cg || !S.flow) { say('The grouping of this PLA could not be read, so the boxes were left alone.', true); return false; }
@@ -2716,17 +2757,20 @@ function fillBuilderFromLayout() {
   // nozzles
   const f = S.flow;
   const setPort = (id, value) => { if ([...$(id).options].some((o) => o.value === value)) $(id).value = value; };
-  setPort('genhin', f.hot.i);
-  setPort('gencin', f.cold.i);
+  setPort(prefix + 'hin', f.hot.i);
+  setPort(prefix + 'cin', f.cold.i);
   syncOutlets(true);
-  setPort('genhout', f.hot.o);
-  setPort('gencout', f.cold.o);
+  setPort(prefix + 'hout', f.hot.o);
+  setPort(prefix + 'cout', f.cold.o);
   updateFlowNote();
   // unit model
-  $('genname').value = S.info.model && S.info.model !== 'New layout' ? S.info.model : '';
-  $('genname').dispatchEvent(new Event('input'));
+  if (prefix === 'gen') {
+    $('genname').value = S.info.model && S.info.model !== 'New layout' ? S.info.model : '';
+    $('genname').dispatchEvent(new Event('input'));
+  }
+  setWn(prefix, packSide(S.plates, S.info));
   updateGenPreview();
-  say('Filled in from the loaded PLA' + (cg.edited ? ' (with your plate edits)' : '') + '.');
+  say((prefix === 'gen' ? 'Filled in from the loaded PLA' : 'Filled in from the second PLA') + (cg.edited ? ' (with your plate edits)' : '') + '.');
   return true;
 }
 
@@ -2882,6 +2926,110 @@ function exportName(base, ext) {
   return base + (tag ? '_' + tag : '') + '.' + ext;
 }
 
+// ---------------------------------------------------------------------------
+// Plate pack comparison: which plates of the original pack the modified pack can reuse
+// ---------------------------------------------------------------------------
+
+let ORIG = null; // the original plate pack: {plates, info, hasSides, name, state, parsed, p3}
+let MOD = null;  // the modified plate pack that was built: {result, hasSides}
+
+const cmpSuffix = () => (S.cmpShow && S.cmp ? '_new_plates' : '');
+
+/** Two plates are the same plate when punch code, theta and (for FlexFlow packs) gasket side match. A / B and hot / cold do not matter. */
+const packKey = (p, hasSides) => p.code + '/' + (p.theta || 0) + '/' + (hasSides ? (p.side || '') : '');
+
+/**
+ * Match the plates of the modified pack (built in the second builder) to the original pack.
+ * Each position takes the lowest unused original plate of its type, so the original numbers run on in order. Returns null until there is an original and a built pack.
+ */
+function comparePacks() {
+  if (!ORIG || !MOD) return null;
+  const O = ORIG.plates;
+  const N = S.cmpShow ? S.plates : MOD.result.plates; // while shown, the strip holds the modified pack
+  // Narrow / wide is ignored, except when Wi / Na plate types are involved. On a T10 or T15 it is ignored then too:
+  // the plate is turned over and the gasket moved to the other side.
+  const flex = ORIG.hasSides || MOD.hasSides;
+  const t1015 = /^\s*T(10|15)\b/i.test(String((ORIG.info && ORIG.info.model) || ''));
+  const sides = flex && !t1015;
+  const oKey = O.map((p) => packKey(p, sides));
+  const nKey = N.map((p) => packKey(p, sides));
+  const used = new Array(O.length).fill(false);
+  const assign = new Array(N.length).fill(0);
+  // Each new position takes the lowest unused original plate of its type, so the original numbers run on in order (22, 23, 24 ...).
+  for (let i = 0; i < N.length; i++) {
+    if (assign[i]) continue;
+    const j = O.findIndex((_, k) => !used[k] && oKey[k] === nKey[i]);
+    if (j >= 0) { assign[i] = j + 1; used[j] = true; }
+  }
+  const discarded = [];
+  used.forEach((u, k) => { if (!u) discarded.push(k + 1); });
+
+  const rows = new Map();
+  const row = (key, p) => {
+    if (!rows.has(key)) {
+      const [code, theta, side] = key.split('/');
+      rows.set(key, { key, p, code: +code, theta: +theta, side, orig: 0, need: 0, reused: 0, order: 0, drop: 0 });
+    }
+    return rows.get(key);
+  };
+  O.forEach((p, k) => { const r = row(oKey[k], p); r.orig++; if (!used[k]) r.drop++; });
+  N.forEach((p, k) => { const r = row(nKey[k], p); r.need++; if (assign[k]) r.reused++; else r.order++; });
+  const list = [...rows.values()].sort((a, b) => b.need + b.orig - (a.need + a.orig));
+  const total = (f) => list.reduce((sum, r) => sum + r[f], 0);
+  return {
+    assign, discarded, rows: list, sides, sidesIgnored: flex && t1015,
+    totals: { orig: O.length, need: N.length, reused: total('reused'), order: total('order'), drop: discarded.length },
+    noTheta: O.filter((p) => !p.theta).length,
+  };
+}
+
+/** One sentence on what makes two plates the same plate in this comparison. */
+function cmpRuleText(c) {
+  return 'A plate is the same plate when the punch code and theta' + (c.sides ? ' and gasket side (N / W)' : '') + ' match. A or B and hot or cold do not matter.'
+    + (c.sidesIgnored ? ' Narrow / wide is ignored on T10 and T15 plates: the plate is turned over and the gasket moved.' : '')
+    + ' Gaskets are not counted.';
+}
+
+/** Text of a plate type row: "03 (1234) Low theta, narrow - Channel Plate". */
+function cmpTypeLabel(r) {
+  const role = ROLE_FULL_NAME[roleLabel(r.p)] || 'Channel Plate';
+  const theta = r.theta === 2 ? 'High' : r.theta === 1 ? 'Low' : 'no theta';
+  const side = r.side === 'N' ? ', narrow' : r.side === 'W' ? ', wide' : '';
+  return { role, text: `${pad(r.code)} (${digitsOf(r.code)})  ${theta}${side}` };
+}
+
+/** Where each original plate went: ["1 > 1", "22 > 23", "7 discarded", ...] in original plate order. */
+function cmpIdMap(c) {
+  const where = {};
+  c.assign.forEach((id, k) => { if (id) where[id] = k + 1; });
+  return Array.from({ length: c.totals.orig }, (_, k) => (where[k + 1] ? `${k + 1} > ${where[k + 1]}` : `${k + 1} discarded`));
+}
+
+function renderCompare() {
+  const box = $('comparebox');
+  if (!box) return;
+  if (!S.cmpOpen) { box.style.display = 'none'; return; }
+  const c = comparePacks();
+  box.style.display = 'block';
+  if (!c) {
+    box.innerHTML = '<div class="bdh">Plate pack comparison <span>Press Modify Plate Pack, build the modified pack, then Compare plate packs.</span></div>';
+    return;
+  }
+  const t = c.totals;
+  const rows = c.rows.map((r) => {
+    const { role, text } = cmpTypeLabel(r);
+    return `<tr><td>${esc(text)}</td><td>${esc(role)}</td><td>${r.orig}</td><td>${r.need}</td><td>${r.reused}</td><td style="font-weight:700;${r.order ? 'color:#1a8a1a' : ''}">${r.order}</td><td style="${r.drop ? 'color:#b00' : ''}">${r.drop}</td></tr>`;
+  }).join('');
+  const map = cmpIdMap(c).map((m) => `<span style="display:inline-block;margin:1px 8px 1px 0;white-space:nowrap;${/discarded/.test(m) ? 'color:#b00;font-weight:700' : ''}">${m}</span>`).join('');
+  box.innerHTML = '<div class="bdh">Plate pack comparison <span>Plates the modified pack needs, minus the plates the original pack can supply.</span></div>'
+    + `<div style="padding:4px 4px 10px"><div class="sub" style="margin-bottom:6px">Original ${t.orig} plates${ORIG.name ? ' (' + esc(ORIG.name) + ')' : ''}. Modified pack ${t.need} plates: reuse ${t.reused}, <b>order ${t.order} new</b>, discard ${t.drop}.</div>`
+    + '<table><thead><tr><th>Plate type</th><th>Function</th><th>In original</th><th>Needed</th><th>Reused</th><th>To order</th><th>Discarded</th></tr></thead><tbody>'
+    + rows + `<tr style="font-weight:700"><td>Total</td><td></td><td>${t.orig}</td><td>${t.need}</td><td>${t.reused}</td><td>${t.order}</td><td>${t.drop}</td></tr></tbody></table>`
+    + `<div class="sub" style="margin:8px 0 2px">Original plate number &gt; position in the modified pack:</div><div style="font-size:12px">${map}</div>`
+    + '<div class="sub" style="margin-top:8px">' + esc(cmpRuleText(c))
+    + (c.noTheta ? ` ${c.noTheta} original plates have no theta in the PLA, so they cannot be matched.` : '') + '</div></div>';
+}
+
 /** Trigger a browser download of a Blob. */
 function download(blob, name) {
   const a = document.createElement('a');
@@ -2950,7 +3098,7 @@ function exportSvg() {
   const el = $('stripsvg');
   if (!el) return;
   const box = el.viewBox.baseVal;
-  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), exportName(fileBase(), 'svg'));
+  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), exportName(fileBase() + cmpSuffix(), 'svg'));
 }
 
 function exportPng() {
@@ -2963,7 +3111,7 @@ function exportPng() {
   exportMessage('Making PNG...');
   svgToCanvas(svgText(el, 0, 0, box.width, box.height, w, h), w, h)
     .then((canvas) => canvas.toBlob((blob) => {
-      download(blob, exportName(fileBase(), 'png'));
+      download(blob, exportName(fileBase() + cmpSuffix(), 'png'));
       exportMessage('PNG saved.');
     }, 'image/png'))
     .catch((err) => exportMessage('PNG failed: ' + err.message));
@@ -2975,7 +3123,7 @@ function exportPdf() {
   exportMessage('Making PDF...');
   makePdf(el)
     .then((blob) => {
-      download(blob, exportName(fileBase(), 'pdf'));
+      download(blob, exportName(fileBase() + cmpSuffix(), 'pdf'));
       exportMessage('PDF saved.');
     })
     .catch((err) => exportMessage('PDF failed: ' + err.message));
@@ -3550,15 +3698,33 @@ function convertBuilt(parsed) {
 // Mode 1 Basic:    Pass * Chan Type                       -> 1*22MH
 // Mode 2 Mixed:    Pass * (Chan1 Type1 + Chan2 Type2)     -> 1*22MH+17H
 // Mode 3 Advanced: Pass1 * Chan1 + Pass2 * Chan2 Type     -> 1*22+1*17MH
-const GEN = {
+const blankGen = () => ({
   mode: 1,
   hot: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },   // every box starts blank
   cold: { pass: '', chan: '', type: '', chan2: '', type2: '', pass2: '', chan3: '', type3: '', chan4: '', type4: '' },
-};
+});
 
-// Boxes filled by mirroring (not typed by the user). A mirrored box can be overwritten by a mirror again;
+// There are two copies of the builder: 'gen' (the main one) and 'mod' (the modified plate pack). Their element ids start with
+// the prefix. The code below works on the one that is current: GP (prefix), GEN (boxes) and GEN_AUTO, and useBuilder() switches.
+// GEN_AUTO = boxes filled by mirroring (not typed by the user): a mirrored box can be overwritten by a mirror again;
 // once the user types in a box it is theirs and is never overwritten.
-const GEN_AUTO = { hot: {}, cold: {} };
+const BLD = {
+  gen: { gen: blankGen(), auto: { hot: {}, cold: {} }, kind: null, last: 0 },
+  mod: { gen: blankGen(), auto: { hot: {}, cold: {} }, kind: null, last: 0 },
+};
+let GP = 'gen';
+let GEN = BLD.gen.gen;
+let GEN_AUTO = BLD.gen.auto;
+function useBuilder(prefix) {
+  if (prefix === GP) return;
+  BLD[GP].kind = genNozzleKind;
+  BLD[GP].last = genLastPassCount;
+  GP = prefix;
+  GEN = BLD[prefix].gen;
+  GEN_AUTO = BLD[prefix].auto;
+  genNozzleKind = BLD[prefix].kind;
+  genLastPassCount = BLD[prefix].last;
+}
 
 // The input boxes for each mode. `sep` is the symbol drawn before a box, `end` after the last one.
 const GEN_FIELDS = {
@@ -3658,25 +3824,25 @@ function parseModel(model) {
 }
 
 function composeModel() {
-  const part = $('genser').value + $('genport').value;
-  const tail = $('genpress').value + $('genframe').value;
+  const part = $(GP + 'ser').value + $(GP + 'port').value;
+  const tail = $(GP + 'press').value + $(GP + 'frame').value;
   return part + (tail ? '-' + tail : '');
 }
 
 function fillUnitSelects() {
   const blank = (label) => `<option value="">${label}</option>`;
-  $('genser').innerHTML = blank('Series') + UNIT_SERIES.map((v) => `<option>${v}</option>`).join('');
-  $('genport').innerHTML = blank('Port (cm)') + UNIT_PORTS.map(([v, inch]) => `<option value="${v}">${v} cm (${inch})</option>`).join('');
-  $('genpress').innerHTML = blank('Pressing') + UNIT_PRESSING.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
-  $('genframe').innerHTML = blank('Frame') + UNIT_FRAMES.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
-  $('genunit').addEventListener('change', () => { $('genname').value = composeModel(); });
-  $('genname').addEventListener('input', () => {
-    const parsed = parseModel($('genname').value);
+  $(GP + 'ser').innerHTML = blank('Series') + UNIT_SERIES.map((v) => `<option>${v}</option>`).join('');
+  $(GP + 'port').innerHTML = blank('Port (cm)') + UNIT_PORTS.map(([v, inch]) => `<option value="${v}">${v} cm (${inch})</option>`).join('');
+  $(GP + 'press').innerHTML = blank('Pressing') + UNIT_PRESSING.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  $(GP + 'frame').innerHTML = blank('Frame') + UNIT_FRAMES.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  $(GP + 'unit').addEventListener('change', () => { $(GP + 'name').value = composeModel(); });
+  $(GP + 'name').addEventListener('input', () => {
+    const parsed = parseModel($(GP + 'name').value);
     if (!parsed) return;
-    $('genser').value = parsed.series;
-    $('genport').value = UNIT_PORTS.some(([v]) => String(v) === parsed.port) ? parsed.port : '';
-    $('genpress').value = parsed.press;
-    $('genframe').value = parsed.frame;
+    $(GP + 'ser').value = parsed.series;
+    $(GP + 'port').value = UNIT_PORTS.some(([v]) => String(v) === parsed.port) ? parsed.port : '';
+    $(GP + 'press').value = parsed.press;
+    $(GP + 'frame').value = parsed.frame;
   });
 }
 
@@ -3697,7 +3863,7 @@ function updateGenPreview() {
     const note = pairingProblem(both) || groupMisalignment(both);
     if (note) align = `<br><span style="color:#b00">${esc(note)}</span>`;
   }
-  $('genpreview').innerHTML = 'Grouping: ' + esc(genLabel(GEN.mode)) + count + align;
+  $(GP + 'preview').innerHTML = 'Grouping: ' + esc(genLabel(GEN.mode)) + count + align;
 }
 
 function renderGenGrid() {
@@ -3718,8 +3884,8 @@ function renderGenGrid() {
       return `${sep}<div><div class="sub" style="font-size:11px;margin:0 0 2px">${f.label}</div>${input}</div>${end}`;
     }).join('') + '</div>';
   };
-  $('gengrid').innerHTML = row('hot') + row('cold');
-  $('genmodes').querySelectorAll('button').forEach((b) => b.classList.toggle('sec', +b.dataset.mode !== GEN.mode));
+  $(GP + 'grid').innerHTML = row('hot') + row('cold');
+  $(GP + 'modes').querySelectorAll('button').forEach((b) => b.classList.toggle('sec', +b.dataset.mode !== GEN.mode));
   updateGenPreview();
   refreshNozzles(); // the pass count may have changed with the mode
 }
@@ -3727,8 +3893,8 @@ function renderGenGrid() {
 // ---- Nozzle boxes: S1-S4 for a single pass, S1-S4 and T1-T4 once there is more than one pass ----
 const SINGLE_PASS_PORTS = ['S1', 'S2', 'S3', 'S4'];
 const NOZZLE_DEFAULT = {
-  single: { genhin: 'S1', genhout: 'S2', gencin: 'S3', gencout: 'S4' }, // the usual single-pass pattern
-  multi: { genhin: 'S1', genhout: 'T1', gencin: 'T4', gencout: 'S4' },
+  single: { hin: 'S1', hout: 'S2', cin: 'S3', cout: 'S4' }, // the usual single-pass pattern
+  multi: { hin: 'S1', hout: 'T1', cin: 'T4', cout: 'S4' },
 };
 const PARTNER_PORT = { S1: 'S2', S2: 'S1', S3: 'S4', S4: 'S3' }; // the other port of the same channel
 let genNozzleKind = null;
@@ -3757,17 +3923,17 @@ function coCurrentNote(flow, passCount) {
 
 function updateFlowNote() {
   const flow = {
-    hot: { i: $('genhin').value, o: $('genhout').value },
-    cold: { i: $('gencin').value, o: $('gencout').value },
+    hot: { i: $(GP + 'hin').value, o: $(GP + 'hout').value },
+    cold: { i: $(GP + 'cin').value, o: $(GP + 'cout').value },
   };
-  $('gennote').textContent = coCurrentNote(flow, genPassCount());
+  $(GP + 'note').textContent = coCurrentNote(flow, genPassCount());
   paintPortDiagrams(flow);
 }
 
 /** Colour the port diagrams to match the nozzle boxes: dark = In, lighter = Out; red = hot, blue = cold. */
 function paintPortDiagrams(flow) {
   const paint = { [flow.hot.i]: ['#e60000', '#fff'], [flow.hot.o]: ['#ff9d9d', '#600'], [flow.cold.i]: ['#0000e6', '#fff'], [flow.cold.o]: ['#9d9dff', '#006'] };
-  document.querySelectorAll('#genports circle[data-port], #genportsT circle[data-port]').forEach((c) => {
+  document.querySelectorAll(`#${GP}ports circle[data-port], #${GP}portsT circle[data-port]`).forEach((c) => {
     const p = paint[c.dataset.port];
     c.setAttribute('fill', p ? p[0] : '#eef');
     const t = c.parentNode.querySelector(`text[data-port-label="${c.dataset.port}"]`);
@@ -3791,10 +3957,10 @@ function outletPort(inlet, passCount) {
 /** Out boxes only list the ports at the end the flow must leave from (no S ports when it leaves at T, and the reverse). */
 function syncOutlets(force) {
   const passCount = genPassCount();
-  [['genhin', 'genhout'], ['gencin', 'gencout']].forEach(([inId, outId]) => {
-    const want = outletPort($(inId).value, passCount);
+  [['hin', 'hout'], ['cin', 'cout']].forEach(([inId, outId]) => {
+    const want = outletPort($(GP + inId).value, passCount);
     const options = PORT_NAMES.filter((name) => name[0] === want[0]);
-    const select = $(outId);
+    const select = $(GP + outId);
     fillSelect(select, options, !force && options.includes(select.value) ? select.value : want);
   });
 }
@@ -3805,7 +3971,7 @@ function refreshNozzles() {
   const kind = genPassCount() > 1 ? 'multi' : 'single';
   const allowed = kind === 'multi' ? PORT_NAMES : SINGLE_PASS_PORTS;
   Object.keys(NOZZLE_DEFAULT.single).forEach((id) => {
-    const select = $(id);
+    const select = $(GP + id);
     const keep = genNozzleKind !== null && allowed.includes(select.value);
     fillSelect(select, allowed, keep ? select.value : NOZZLE_DEFAULT[kind][id]);
   });
@@ -3816,41 +3982,42 @@ function refreshNozzles() {
   updateFlowNote();
 }
 
-(function wireBuilder() {
+function wireBuilder(prefix) {
+  useBuilder(prefix);
   fillUnitSelects();
   renderGenGrid(); // also fills the nozzle boxes
 
   // Single pass: picking an In port fills in the Out port on the same channel (S1 -> S2, S3 -> S4, S2 -> S1 ...).
-  ['genhin', 'genhout', 'gencin', 'gencout'].forEach((id) => {
-    $(id).addEventListener('change', (e) => {
+  ['hin', 'hout', 'cin', 'cout'].forEach((id) => {
+    $(GP + id).addEventListener('change', (e) => {
       // Hot and cold use opposite ends of the plate: if one fluid is picked on S1/S2 the other defaults to S3/S4, and the reverse.
       const sideOf = (port) => (port === 'S1' || port === 'S2' ? 'top' : port === 'S3' || port === 'S4' ? 'bottom' : '');
       const mine = sideOf(e.target.value);
       if (mine) {
-        const other = id.startsWith('genh') ? ['gencin', 'gencout'] : ['genhin', 'genhout'];
+        const other = id[0] === 'h' ? ['cin', 'cout'] : ['hin', 'hout'];
         const wanted = mine === 'top' ? ['S3', 'S4'] : ['S1', 'S2'];
         const single = genPassCount() <= 1;
         if (single) {
           // Only move the other fluid when it is sitting on the same side.
-          if (sideOf($(other[0]).value) === mine || sideOf($(other[1]).value) === mine) {
-            $(other[0]).value = wanted[0];
-            $(other[1]).value = wanted[1];
+          if (sideOf($(GP + other[0]).value) === mine || sideOf($(GP + other[1]).value) === mine) {
+            $(GP + other[0]).value = wanted[0];
+            $(GP + other[1]).value = wanted[1];
           }
         } else {
           // Multi-pass: swap only the ports that clash (S1<->S3, S2<->S4).
           const swap = { S1: 'S3', S2: 'S4', S3: 'S1', S4: 'S2' };
-          other.forEach((o) => { if (sideOf($(o).value) === mine) $(o).value = swap[$(o).value]; });
+          other.forEach((o) => { if (sideOf($(GP + o).value) === mine) $(GP + o).value = swap[$(GP + o).value]; });
         }
       }
-      syncOutlets(id === 'genhin' || id === 'gencin'); // a new In port sets its Out port; an Out pick is kept if it is at the right end
+      syncOutlets(id === 'hin' || id === 'cin'); // a new In port sets its Out port; an Out pick is kept if it is at the right end
       updateFlowNote();
     });
   });
 
-  $('genfill').addEventListener('click', () => { if (S.plates && S.plates.length) fillBuilderFromLayout(); else { $('genmsg').style.color = '#b00'; $('genmsg').textContent = 'No PLA is loaded yet.'; } });
+  if (prefix === 'gen') $('genfill').addEventListener('click', () => { if (S.plates && S.plates.length) fillBuilderFromLayout(); else { $(GP + 'msg').style.color = '#b00'; $(GP + 'msg').textContent = 'No PLA is loaded yet.'; } });
 
   // The Build PLA button opens and closes the panel.
-  $('genopen').addEventListener('click', () => {
+  if (prefix === 'gen') $('genopen').addEventListener('click', () => {
     const panel = $('genpanel');
     const open = panel.style.display === 'none';
     panel.style.display = open ? 'block' : 'none';
@@ -3858,7 +4025,7 @@ function refreshNozzles() {
   });
 
   // The three mode buttons.
-  $('genmodes').addEventListener('click', (e) => {
+  $(GP + 'modes').addEventListener('click', (e) => {
     const button = e.target.closest('button');
     if (!button) return;
     GEN.mode = +button.dataset.mode;
@@ -3874,7 +4041,7 @@ function refreshNozzles() {
       GEN[side][key] = e.target.value;
       if (side === 'hot' && e.type === 'change') {
         GEN.cold[key] = PAIR_TYPE[e.target.value];
-        const partner = $('gengrid').querySelector(`[data-side="cold"][data-k="${key}"]`);
+        const partner = $(GP + 'grid').querySelector(`[data-side="cold"][data-k="${key}"]`);
         if (partner) partner.value = GEN.cold[key];
       }
     } else {
@@ -3883,7 +4050,7 @@ function refreshNozzles() {
       delete GEN_AUTO[side][key];
       // Mirror to the opposite side while that box is empty (or was only mirrored). Never overrides typed values.
       const other = side === 'hot' ? 'cold' : 'hot';
-      const partner = $('gengrid').querySelector(`[data-side="${other}"][data-k="${key}"]`);
+      const partner = $(GP + 'grid').querySelector(`[data-side="${other}"][data-k="${key}"]`);
       let hotChanged = side === 'hot';
       if (partner && partner.tagName !== 'SELECT') {
         const otherEmpty = GEN[other][key] === '' || GEN[other][key] == null;
@@ -3898,40 +4065,63 @@ function refreshNozzles() {
     }
     updateGenPreview();
   };
-  $('gengrid').addEventListener('input', onEdit);
-  $('gengrid').addEventListener('change', onEdit);
+  $(GP + 'grid').addEventListener('input', onEdit);
+  $(GP + 'grid').addEventListener('change', onEdit);
 
-  $('genbuild').addEventListener('click', () => {
+  $(prefix + 'wn').addEventListener('click', () => setWn(prefix, $(prefix + 'wn').dataset.side === 'N' ? 'W' : 'N'));
+  $(GP + 'build').addEventListener('click', () => {
     const problem = genProblem();
     if (problem) {
-      $('genmsg').style.color = '#b00';
-      $('genmsg').textContent = problem;
+      $(GP + 'msg').style.color = '#b00';
+      $(GP + 'msg').textContent = problem;
       return;
     }
     const flow = {
-      hot: { i: $('genhin').value, o: $('genhout').value },
-      cold: { i: $('gencin').value, o: $('gencout').value },
+      hot: { i: $(GP + 'hin').value, o: $(GP + 'hout').value },
+      cold: { i: $(GP + 'cin').value, o: $(GP + 'cout').value },
     };
     const spec = {
       hot: { passes: genSidePasses(GEN.hot, GEN.mode) },
       cold: { passes: genSidePasses(GEN.cold, GEN.mode) },
       label: genLabel(GEN.mode),
     };
-    const result = buildLayout(spec, flow, $('genname').value.trim());
-    const message = $('genmsg');
+    const unit = GP === 'mod' ? String((ORIG && ORIG.info && ORIG.info.model) || '').replace(/^New layout$/, '') : $(GP + 'name').value.trim();
+    const result = buildLayout(spec, flow, unit);
+    if (!result.error && /^\s*T(10|15)\b/i.test(String(result.info.model))) {
+      result.info.flexSide = $(GP + 'wn').dataset.side === 'N' ? 'N' : 'W';
+      result.notes.push(['warn', `Assumed: every plate of this ${result.info.model} is ${result.info.flexSide === 'N' ? 'Narrow' : 'Wide'}. A built T10 or T15 gets Wide plates unless the Wide / Narrow button in the builder is switched.`]);
+    }
+    const message = $(GP + 'msg');
     if (result.error) {
       message.style.color = '#b00';
       message.textContent = result.error;
       return;
     }
     message.style.color = '';
+    if (GP === 'mod') { // the modified plate pack: kept on the side, the strip is only switched by Show Plate Pack + New Plates
+      MOD = { result, hasSides: /[HLM](Na|Wi)\b/.test((result.info && result.info.grouping) || '') };
+      MODSIG = modSig();
+      message.textContent = `Modified pack built: ${result.plates.length} plates.`;
+      if (S.cmpShow) { PARSED = { generated: true, result }; applyAll(); } else renderCompare();
+      return;
+    }
+    if (ORIG) resetModify('The original plate pack was rebuilt, so Modify Plate Pack was reset.', false);
     message.textContent = 'Layout built.';
     PARSED = { generated: true, result };
     $('status').textContent = 'Built a new layout (no PLA loaded)';
     $('after').style.display = 'block';
     applyAll();
   });
-})();
+}
+
+// The same builder twice: the main one and the modified plate pack (a blank copy of the same boxes).
+$('modconf').innerHTML = $('genconf').innerHTML.replace(/id="gen/g, 'id="mod');
+$('modname').parentNode.style.display = 'none'; // the modified pack is the same unit as the original: no model, series, port, pressing or frame to pick
+$('modunit').style.display = 'none';
+wireBuilder('gen');
+wireBuilder('mod');
+useBuilder('gen');
+['gen', 'mod'].forEach((p) => ['click', 'input', 'change'].forEach((t) => $(p === 'gen' ? 'genpanel' : 'modsection').addEventListener(t, (e) => { if (p === 'gen' && e.target.closest && e.target.closest('#modsection')) return; useBuilder(p); }, true)));
 
 // ---- PLA sheet: a printable plate hanging list for the current layout ----
 
@@ -4245,23 +4435,35 @@ async function exportPlaSheet() {
     }
   } catch (err) { console.error(err); }
 
-  // ---- Assumptions go on their own page, just before the side view ----
-  if (built) {
-    newPage(); // the assumptions get a page of their own at the very end
-    add(45, 11, 'F2', 'What this draft assumes');
+  // ---- Plate pack comparison (when one is open): the order list and where each original plate went ----
+  const cmp = (S.cmpOpen || S.cmpShow) ? comparePacks() : null;
+  if (cmp) {
+    newPage();
+    add(45, 11, 'F2', 'Plate pack comparison');
     y -= 15;
-    const notes = S.notes.filter((n) => n[0] === 'warn').map((n) => n[1]);
-    notes.push('Assumed: the flow columns 1 to 4 are ports S1 to S4. Each channel plate shows U at the two ports of its own column (A plates: 3 and 4, B plates: 1 and 2) with the flow arrow between them, and O at the other column. The flow direction comes from the In and Out ports you chose, and reverses on every pass.');
-    notes.push('Assumed: the symbols follow the CAS listings for an M10-BFG and an M15-MFG (which has a turning plate): a closed port in a plate\'s own flow column is printed as = (cold) or - (hot) with the flow arrow still drawn, a closed port in the other column is left blank, and end plates show O at their open ports only. The frame and pressure plate lines show O at the nozzle ports in use. CAS prints the hot closed port as two dashes where this prints one.');
-    notes.forEach((text) => {
-      const lines = wrapText(text, 105);
-      room(lines.length * 11 + 3);
-      lines.forEach((line) => { add(52, 8.5, 'F1', line); y -= 11; });
-      y -= 3;
+    add(45, 8.5, 'F1', `Original pack ${cmp.totals.orig} plates${ORIG.name ? ' (' + ORIG.name + ')' : ''}. Modified pack ${cmp.totals.need} plates: reuse ${cmp.totals.reused}, order ${cmp.totals.order} new, discard ${cmp.totals.drop}.`);
+    y -= 16;
+    const X = [45, 215, 300, 345, 390, 440, 495];
+    ['Plate type', 'Function', 'Original', 'Needed', 'Reused', 'To order', 'Discarded'].forEach((h, k) => add(X[k], 8.5, 'F2', h));
+    y -= 13;
+    cmp.rows.forEach((r) => {
+      room(14);
+      const { role, text } = cmpTypeLabel(r);
+      [text.replace(/\s+/g, ' '), role, r.orig, r.need, r.reused, r.order, r.drop].forEach((v, k) => add(X[k], 8.5, k === 5 ? 'F2' : 'F1', String(v)));
+      y -= 12;
     });
+    y -= 6;
+    add(45, 8.5, 'F2', 'Total');
+    [cmp.totals.orig, cmp.totals.need, cmp.totals.reused, cmp.totals.order, cmp.totals.drop].forEach((v, k) => add(X[k + 2], 8.5, 'F2', String(v)));
+    y -= 22;
+    add(45, 9, 'F2', 'Original plate number > position in the modified pack');
+    y -= 14;
+    wrapText(cmpIdMap(cmp).join(',   '), 110).forEach((line) => { room(12); add(45, 8.5, 'F1', line); y -= 11; });
+    y -= 8;
+    wrapText(cmpRuleText(cmp) + ' Grey outline = reused plate, green outline = new plate (see the flow chart in the sheet when the new-plates view is on).', 110).forEach((line) => { room(12); add(45, 8, 'F1', line); y -= 10; });
   }
 
-  // ---- The side view is the last page, as it is showing now ----
+  // ---- The side view comes just before the assumptions page ----
   try {
     const pic = await sideViewPicture(3);
     if (pic) {
@@ -4283,6 +4485,22 @@ async function exportPlaSheet() {
       pages.push(page);
     }
   } catch (err) { console.error(err); }
+
+  // ---- Assumptions go on their own page, the very last page of the sheet ----
+  if (built) {
+    newPage(); // the assumptions get a page of their own at the very end
+    add(45, 11, 'F2', 'What this draft assumes');
+    y -= 15;
+    const notes = S.notes.filter((n) => n[0] === 'warn').map((n) => n[1]);
+    notes.push('Assumed: the flow columns 1 to 4 are ports S1 to S4. Each channel plate shows U at the two ports of its own column (A plates: 3 and 4, B plates: 1 and 2) with the flow arrow between them, and O at the other column. The flow direction comes from the In and Out ports you chose, and reverses on every pass.');
+    notes.push('Assumed: the symbols follow the CAS listings for an M10-BFG and an M15-MFG (which has a turning plate): a closed port in a plate\'s own flow column is printed as = (cold) or - (hot) with the flow arrow still drawn, a closed port in the other column is left blank, and end plates show O at their open ports only. The frame and pressure plate lines show O at the nozzle ports in use. CAS prints the hot closed port as two dashes where this prints one.');
+    notes.forEach((text) => {
+      const lines = wrapText(text, 105);
+      room(lines.length * 11 + 3);
+      lines.forEach((line) => { add(52, 8.5, 'F1', line); y -= 11; });
+      y -= 3;
+    });
+  }
 
   download(makeTextPdf(pages), exportName(fileBase().replace(/_short$/, '') + '_PLA_sheet', 'pdf'));
   exportMessage('PLA sheet saved.');
@@ -4310,7 +4528,7 @@ function applyAll() {
   renderPanel();
   render();
   if (PARSED.generated) $('p3panel').style.display = 'none'; // a built layout has no source PLA to show
-  else fillBuilderFromLayout(); // a loaded PLA also fills in the Build PLA boxes
+  else if (!S.cmpShow) fillBuilderFromLayout(); // a loaded PLA also fills in the Build PLA boxes (not while the comparison view is on)
 }
 
 /** Render one PDF page to a PNG data URL (used for the "Source" panel). */
@@ -4325,8 +4543,220 @@ async function pageToImage(doc, pageNo, scale) {
 }
 
 // ---- Choosing a PDF ----
+/* ---- Modify Plate Pack: keep the pack that is on screen as the original, build a modified one beside it ---- */
+let modActive = false;
+
+function setModUi(active) {
+  modActive = active;
+  $('modsection').style.display = active ? 'block' : 'none';
+  updateModButton();
+}
+
+/** The Wide / Narrow button of a builder ('gen' or 'mod'): shows the side every plate of a built T10 / T15 gets. */
+function setWn(prefix, side) {
+  const b = $(prefix + 'wn');
+  b.dataset.side = side === 'N' ? 'N' : 'W';
+  b.textContent = side === 'N' ? 'Narrow' : 'Wide';
+  b.classList.toggle('sec', side !== 'N');
+}
+const isFlexModel = (m) => /^\s*T(10|15)\b/i.test(String(m || ''));
+function updateWnButtons() {
+  $('genwnrow').style.display = isFlexModel($('genname').value) ? 'flex' : 'none';
+  $('modwnrow').style.display = ORIG && isFlexModel(ORIG.info && ORIG.info.model) ? 'flex' : 'none';
+}
+
+/** Modify Plate Pack sits under Build PLA while the builder is closed (usable once a PLA file was loaded) and next to Build layout while it is open. */
+function updateModButton() {
+  const btn = $('modpack');
+  if (!btn) return;
+  const open = $('genpanel').style.display !== 'none';
+  const loadedFile = !!(PARSED && !PARSED.generated);
+  btn.disabled = ORIG ? false : (open ? !S.plates.length : !loadedFile || !S.plates.length);
+  btn.classList.toggle('sec', !modActive); // blue while the modified-pack section is open
+  const show = open || !!ORIG || loadedFile;
+  const home = open ? $('genrow') : $('modtop');
+  if (btn.parentNode !== home) home.appendChild(btn);
+  btn.style.display = show ? '' : 'none';
+  $('modtop').style.display = !open && show ? 'flex' : 'none';
+  updateWnButtons();
+}
+
+/** What the second builder currently says, to tell whether the modified pack still matches it. */
+function modSig() {
+  return JSON.stringify([BLD.mod.gen, ['modhin', 'modhout', 'modcin', 'modcout'].map((id) => $(id) && $(id).value), $('modwn').dataset.side]);
+}
+let MODSIG = null;
+
+/** Compare / Show press this: build the modified pack if it was never built or the boxes changed since. */
+function ensureModBuilt() {
+  if (MOD && MODSIG === modSig()) return true;
+  $('modbuild').click();
+  if (!MOD || MODSIG !== modSig()) {
+    if (!$('modmsg').textContent || $('modmsg').style.color !== 'rgb(187, 0, 0)') cmpSay('Fill in the modified plate pack first.', true);
+    else cmpSay($('modmsg').textContent, true);
+    return false;
+  }
+  return true;
+}
+
+/** A copy of the whole drawing state, so the original pack can be put back after the modified one was shown. */
+function snapshotState() {
+  return { ...S, plates: S.plates.map((p) => ({ ...p })), blocks: S.blocks && S.blocks.map((blk) => ({ ...blk })) };
+}
+
+/** Empty the second builder again. */
+function blankModBuilder() {
+  Object.assign(BLD.mod.gen, blankGen());
+  BLD.mod.auto.hot = {};
+  BLD.mod.auto.cold = {};
+  BLD.mod.kind = null;
+  BLD.mod.last = 0;
+  const was = GP;
+  useBuilder('mod');
+  ['name', 'ser', 'port', 'press', 'frame'].forEach((x) => { $('mod' + x).value = ''; });
+  renderGenGrid();
+  $('modmsg').textContent = '';
+  useBuilder(was);
+}
+
+/** Put the original pack back on screen after the modified one was shown. */
+function hideNewPlates() {
+  const st = ORIG.state;
+  const open = S.cmpOpen;
+  Object.keys(S).forEach((k) => delete S[k]);
+  Object.assign(S, { ...st, plates: st.plates.map((p) => ({ ...p })), blocks: st.blocks && st.blocks.map((blk) => ({ ...blk })) });
+  PARSED = ORIG.parsed;
+  S.cmpShow = false;
+  S.cmpOpen = open;
+  $('rules').style.display = S.oldfmt || PARSED.generated ? 'none' : '';
+  $('p3h').textContent = S.oldfmt ? 'Source Plate Sequence - Full PLA ' : 'Source Plate Sequence - PLA Page';
+  $('p3s').textContent = S.oldfmt ? 'Show/Hide the full PLA' : 'Show/Hide plate sequence from PLA';
+  $('p3img').style.display = S.oldfmt ? 'none' : '';
+  $('p3pages').innerHTML = ORIG.p3 || '';
+  renderPanel();
+  render();
+  if (PARSED.generated) $('p3panel').style.display = 'none';
+  if (ORIG.p3disp !== undefined) $('p3panel').style.display = ORIG.p3disp;
+  $('cmpshow').textContent = 'Show Plate Pack + New Plates';
+}
+
+/** Turn Modify Plate Pack off: forget the original and the modified pack, blank the second builder. */
+function resetModify(msg, restoreView) {
+  if (restoreView !== false && S.cmpShow && ORIG && ORIG.state) hideNewPlates();
+  ORIG = null;
+  MOD = null;
+  S.cmpShow = false;
+  S.cmpOpen = false;
+  S.cmp = null;
+  setModUi(false);
+  $('cmpshow').textContent = 'Show Plate Pack + New Plates';
+  $('cmpmsg').textContent = '';
+  blankModBuilder();
+  setWn('mod', 'W');
+  $('modfile').value = '';
+  MODSIG = null;
+  if (msg) $('genmsg').textContent = msg;
+  if (restoreView !== false) render();
+}
+
+const cmpSay = (t, bad) => { $('cmpmsg').style.color = bad ? '#b00' : ''; $('cmpmsg').textContent = t; };
+
+$('modpack').addEventListener('click', () => {
+  if (!S.plates.length) return;
+  if (modActive) { setModUi(false); return; } // collapse; the original and the modified pack are kept
+  if (!ORIG) {
+    ORIG = {
+      plates: S.plates.map((p) => ({ ...p })), info: { ...S.info }, hasSides: groupingHasSides(),
+      name: PARSED && !PARSED.generated && LOADED ? LOADED.name : ((S.info && S.info.model) || 'built layout'),
+      state: null, parsed: null, p3: '',
+    };
+    cmpSay(`Original plate pack kept (${ORIG.plates.length} plates). Describe the modified pack above and build it, then compare.`);
+  }
+  { // start the modified pack on the side the original shows: printed N / W plates first, otherwise what the builder chose
+    const nN = ORIG.plates.filter((p) => p.side === 'N').length;
+    const nW = ORIG.plates.filter((p) => p.side === 'W').length;
+    setWn('mod', nN + nW ? (nN > nW ? 'N' : 'W') : (ORIG.info && ORIG.info.flexSide) || 'W');
+  }
+  $('modunitnote').textContent = 'Unit: ' + (ORIG.info.model || 'not named') + ' (the same unit as the original pack)';
+  setModUi(true);
+});
+
+$('cmppacks').addEventListener('click', () => {
+  if (!ORIG) { cmpSay('Press Modify Plate Pack first.', true); return; }
+  if (!ensureModBuilt()) return;
+  S.cmpOpen = true;
+  cmpSay('');
+  render();
+  $('comparebox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+$('cmpshow').addEventListener('click', () => {
+  if (S.cmpShow) { hideNewPlates(); cmpSay(''); return; }
+  if (!ORIG) { cmpSay('Press Modify Plate Pack first.', true); return; }
+  if (!ensureModBuilt()) return;
+  ORIG.state = snapshotState(); // so Hide can bring the original back exactly as it is now, edits included
+  ORIG.parsed = PARSED;
+  ORIG.p3 = $('p3pages').innerHTML;
+  S.short = false; // every plate has to be drawn to be outlined
+  S.cmpShow = true;
+  S.cmpOpen = true;
+  ORIG.p3disp = $('p3panel').style.display;
+  PARSED = MOD.parsed || { generated: true, result: MOD.result };
+  if (MOD.parsed) S.info = MOD.parsed.info;
+  applyAll();
+  if (MOD.parsed) $('p3panel').style.display = 'none'; // the source pictures belong to the first PLA
+  $('cmpshow').textContent = 'Hide new-plates view';
+  cmpSay('Grey outline = reused original plate (its original number is above it). Green outline = new plate.');
+});
+
+/** A second PLA file for the modified pack. It has to be the same unit as the first PLA. */
+$('modfile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file || !ORIG) return;
+  const say = (t, bad) => { $('modmsg').style.color = bad ? '#b00' : ''; $('modmsg').textContent = t; };
+  if (S.cmpShow) { hideNewPlates(); cmpSay(''); }
+  say(`Reading ${file.name} ...`);
+  try {
+    const pdf = await readPdf(await file.arrayBuffer());
+    const parsed = isOldFormat(pdf.pages) ? parseOld(pdf.pages) : parse(pdf.pages);
+    if (!(parsed.old ? parsed.rows.length : parsed.blocks.length)) { say('That does not look like a PLA I know, so it was not loaded.', true); e.target.value = ''; return; }
+    const norm = (m) => String(m || '').toUpperCase().replace(/\s+/g, '');
+    const a = norm(ORIG.info && ORIG.info.model).replace(/^NEWLAYOUT$/, '');
+    const b = norm(parsed.info && parsed.info.model);
+    if (a && b && a !== b) {
+      say(`NOT LOADED: this PLA is for a ${parsed.info.model}, but the first PLA is for a ${ORIG.info.model}. Modify Plate Pack only compares packs of the same unit.`, true);
+      e.target.value = '';
+      return;
+    }
+    // Run the conversion on the drawing state, take the plates, then put the first PLA's drawing back untouched.
+    const keep = snapshotState();
+    convert(parsed);
+    S.info = parsed.info;
+    const result = { info: S.info, flow: S.flow, plates: S.plates.map((p) => ({ ...p })), blocks: S.blocks, notes: (S.notes || []).slice() };
+    const filled = fillBuilderFromLayout('mod'); // the grouping, nozzles and narrow / wide boxes, read from the second PLA
+    const fillMsg = $('modmsg').textContent;
+    Object.keys(S).forEach((k) => delete S[k]);
+    Object.assign(S, keep);
+    MOD = { result, hasSides: /[HLM](Na|Wi)\b/.test((result.info && result.info.grouping) || ''), parsed, name: file.name };
+    MODSIG = modSig();
+    const warn = !a || !b ? ' WARNING: the unit name could not be read from one of the PLAs, so the unit was not checked.' : '';
+    say(`Loaded ${file.name} as the modified pack: ${result.plates.length} plates${b ? ', ' + parsed.info.model : ''}. ${filled ? 'The boxes below were filled in from it.' : fillMsg}${warn}`, !!warn || !filled);
+    if (S.cmpShow) { PARSED = parsed; S.info = parsed.info; applyAll(); } else renderCompare();
+  } catch (err) {
+    say('Could not read that PDF: ' + err.message, true);
+    e.target.value = '';
+    console.error(err);
+  }
+});
+
+$('cmpreset').addEventListener('click', () => resetModify('Modify Plate Pack was reset.'));
+$('genopen').addEventListener('click', updateModButton);
+['input', 'change', 'click'].forEach((t) => $('genpanel').addEventListener(t, () => setTimeout(updateWnButtons, 0)));
+updateModButton();
+
 $('file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
+  if (file) resetModify('', false);
   if (!file) return;
   const status = $('status');
   status.textContent = `Reading ${file.name} ...`;
@@ -4383,6 +4813,7 @@ $('file').addEventListener('change', async (e) => {
 // ---- Restore loaded PLA: back to the file as it was opened (plate edits and built layouts are discarded) ----
 $('genrestore').addEventListener('click', () => {
   const message = $('genmsg');
+  if (ORIG) resetModify('', false);
   if (!LOADED) { message.style.color = '#b00'; message.textContent = 'No PLA file has been opened yet, so there is nothing to restore.'; return; }
   PARSED = LOADED.parsed;
   S.info = PARSED.info;
