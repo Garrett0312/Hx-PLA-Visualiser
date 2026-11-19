@@ -5,7 +5,7 @@
 <title>PLA Visualizer</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
-  var APP_NAME = 'PLA Visualizer V3.5.1'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
+  var APP_NAME = 'PLA Visualizer V3.6.3'; //CHANGE THIS LINE TO MATCH THE CURRENT VERSION
 
 
   var fileName = decodeURIComponent(location.pathname.split('/').pop() || '').replace(/\.html?$/i, '');
@@ -198,7 +198,8 @@ tr.chg td {
   margin-bottom: 10px;
   min-height: 44px;
 }
-#strip {
+#strip,
+#modstrip {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -206,7 +207,8 @@ tr.chg td {
   overflow-y: hidden;
   padding: 4px 0;
 }
-#strip svg {
+#strip svg,
+#modstrip svg {
   display: block;
 }
 #breakdown {
@@ -444,6 +446,7 @@ tr.chg td {
         <div id="editbar" style="display: none"></div> <!-- selected-plate editor, short view, zoom -->
         <div id="strip"></div> <!-- the scrolling SVG -->
         <div id="comparebox" style="display: none"></div> <!-- plate pack comparison: plates to order -->
+        <div id="modstripbox" style="display: none; margin-top: 12px"><div class="bdh" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Modified plate pack <span>Grey outline = reused original plate (its original number is above it). Green outline = new plate.</span><button class="sec" id="modpng" style="margin-left:auto" title="Save the modified plate pack flow as a PNG">PNG</button></div><div id="modstrip"></div></div>
         <div id="breakdown" style="display: none"></div> <!-- Plate I / II / III cards -->
 
         <!-- New format: page 3 of the PDF. Old format: every page of the PDF. -->
@@ -1968,8 +1971,9 @@ function holeColors(G, item) {
   return colors;
 }
 
-function render() {
-  S.cmp = S.cmpShow ? comparePacks() : null; // grey / green outlines only while the comparison is shown
+function render(target) {
+  const forMod = target === 'mod'; // the modified plate pack is drawn the same way into its own box, with the outlines and original numbers
+  S.cmp = forMod ? comparePacks() : null;
   const G = analyse();
   const P = S.plates;
   const M = P.length;
@@ -2166,6 +2170,13 @@ function render() {
     + `<rect width="${W}" height="${H}" fill="#fff"/>`
     + `<g pointer-events="none">${seg}</g>${plates}<g pointer-events="none">${over}${text}</g></svg>`;
 
+  if (forMod) {
+    const box = document.getElementById('modstrip');
+    const keepScroll = box.scrollLeft;
+    box.innerHTML = svg.replace('id="stripsvg"', 'id="modstripsvg"');
+    box.scrollLeft = keepScroll;
+    return;
+  }
   const strip = document.getElementById('strip');
   const scrollLeft = strip.scrollLeft; // keep the scroll position across redraws
   strip.innerHTML = svg;
@@ -2186,10 +2197,33 @@ function render() {
   document.getElementById('clab').textContent = `Cold (${stats.coldN ? majority(stats.cold) + ' plates' : '?'})`;
   renderNotes();
   renderTable();
-  renderBreakdown();
+  withModified(renderBreakdown); // the breakdown cards and the side view follow the modified pack while Modify Plate Pack is on
   renderInfo(); // plate count and grouping follow the edits
   renderCompare();
+  renderModStrip();
   updateModButton();
+}
+
+/** The modified plate pack's flow under the comparison: the same drawing code run on the modified pack, then the original drawing state is put back. */
+function renderModStrip() {
+  const wrap = $('modstripbox');
+  if (!wrap) return;
+  if (!isModActive()) { wrap.style.display = 'none'; return; }
+  const keep = { ...S };
+  try {
+    const parsed = MOD.parsed || { generated: true, result: MOD.result };
+    convert(parsed);
+    S.info = parsed.generated ? parsed.result.info : parsed.info;
+    S.short = false; // every plate has to be drawn to be outlined
+    S.sel = null;
+    S.cmpShow = true;
+    render('mod');
+    MOD.drawn = { slotX: S.slotX, joins: S.joins, stats: S.stats };
+  } finally {
+    Object.keys(S).forEach((k) => delete S[k]);
+    Object.assign(S, keep);
+  }
+  wrap.style.display = S.cmpShow ? 'block' : 'none';
 }
 
 
@@ -2438,11 +2472,15 @@ async function sideViewPicture(pixelsPerUnit) {
 
 function exportSideViewPng() {
   exportMessage('Making side view PNG...');
-  sideViewPicture(3)
-    .then((pic) => {
+  withModifiedAsync(async () => {
+    const pic = await sideViewPicture(3);
+    const name = exportName(fileBase().replace(/_short$/, '') + cmpSuffix() + '_side_view' + (S.sideFull ? '' : '_compact'), 'png');
+    return { pic, name };
+  })
+    .then(({ pic, name }) => {
       if (!pic) { exportMessage('There is no side view to save.'); return; }
       pic.canvas.toBlob((blob) => {
-        download(blob, exportName(fileBase().replace(/_short$/, '') + '_side_view' + (S.sideFull ? '' : '_compact'), 'png'));
+        download(blob, name);
         exportMessage('Side view PNG saved.');
       }, 'image/png');
     })
@@ -2500,7 +2538,7 @@ function renderBreakdown() {
   el.innerHTML = html + '</div>' + sideViewHtml();
   el.style.display = 'block';
   if ($('sidepng')) $('sidepng').onclick = exportSideViewPng;
-  if ($('sidetoggle')) $('sidetoggle').onclick = () => { S.sideFull = !S.sideFull; renderBreakdown(); };
+  if ($('sidetoggle')) $('sidetoggle').onclick = () => { S.sideFull = !S.sideFull; withModified(renderBreakdown); };
 }
 
 // ---------------------------------------------------------------------------
@@ -2541,7 +2579,7 @@ function renderEditBar() {
   const selected = S.sel;
 
   const controls =
-    `<label style="margin-left:auto;margin-right:12px;white-space:nowrap"><input id="shortv" type="checkbox"${S.short ? ' checked' : ''}${S.cmpShow ? ' disabled title="The new-plates view always shows every plate"' : ''} style="vertical-align:middle"> Short view (collapse repeats)</label>`
+    `<label style="margin-left:auto;margin-right:12px;white-space:nowrap"><input id="shortv" type="checkbox"${S.short ? ' checked' : ''} style="vertical-align:middle"> Short view (collapse repeats)</label>`
     + `<label style="white-space:nowrap">Zoom <input id="zoom" type="range" min="${ZOOM.min}" max="${ZOOM.max}" step="${ZOOM.step}" value="${S.zoom || ZOOM.start}" style="vertical-align:middle"></label>`;
 
   if (!selected) {
@@ -2930,10 +2968,55 @@ function exportName(base, ext) {
 // Plate pack comparison: which plates of the original pack the modified pack can reuse
 // ---------------------------------------------------------------------------
 
+/** True while Modify Plate Pack is on (blue) and a modified pack has been built or loaded: the breakdown, side view and exports then follow it. */
+const isModActive = () => !!(modActive && ORIG && MOD);
+
+/** Run fn with the drawing state holding the modified pack (when that is the active one), then put the original state back. */
+function withModified(fn) {
+  if (!isModActive()) return fn();
+  const keep = { ...S };
+  const keepParsed = PARSED;
+  try {
+    const parsed = MOD.parsed || { generated: true, result: MOD.result };
+    convert(parsed);
+    S.info = parsed.generated ? parsed.result.info : parsed.info;
+    PARSED = parsed;
+    S.short = false;
+    S.sel = null;
+    S.cmp = null;
+    if (MOD.drawn) Object.assign(S, MOD.drawn); // where the modified strip's plates sit, for the flow chart pages
+    return fn();
+  } finally {
+    Object.keys(S).forEach((k) => delete S[k]);
+    Object.assign(S, keep);
+    PARSED = keepParsed;
+  }
+}
+async function withModifiedAsync(fn) {
+  if (!isModActive()) return fn();
+  const keep = { ...S };
+  const keepParsed = PARSED;
+  try {
+    const parsed = MOD.parsed || { generated: true, result: MOD.result };
+    convert(parsed);
+    S.info = parsed.generated ? parsed.result.info : parsed.info;
+    PARSED = parsed;
+    S.short = false;
+    S.sel = null;
+    S.cmp = null;
+    if (MOD.drawn) Object.assign(S, MOD.drawn);
+    return await fn();
+  } finally {
+    Object.keys(S).forEach((k) => delete S[k]);
+    Object.assign(S, keep);
+    PARSED = keepParsed;
+  }
+}
+
 let ORIG = null; // the original plate pack: {plates, info, hasSides, name, state, parsed, p3}
 let MOD = null;  // the modified plate pack that was built: {result, hasSides}
 
-const cmpSuffix = () => (S.cmpShow && S.cmp ? '_new_plates' : '');
+const cmpSuffix = () => (isModActive() ? '_modified_pack' : '');
 
 /** Two plates are the same plate when punch code, theta and (for FlexFlow packs) gasket side match. A / B and hot / cold do not matter. */
 const packKey = (p, hasSides) => p.code + '/' + (p.theta || 0) + '/' + (hasSides ? (p.side || '') : '');
@@ -2945,7 +3028,7 @@ const packKey = (p, hasSides) => p.code + '/' + (p.theta || 0) + '/' + (hasSides
 function comparePacks() {
   if (!ORIG || !MOD) return null;
   const O = ORIG.plates;
-  const N = S.cmpShow ? S.plates : MOD.result.plates; // while shown, the strip holds the modified pack
+  const N = MOD.result.plates;
   // Narrow / wide is ignored, except when Wi / Na plate types are involved. On a T10 or T15 it is ignored then too:
   // the plate is turned over and the gasket moved to the other side.
   const flex = ORIG.hasSides || MOD.hasSides;
@@ -3005,6 +3088,8 @@ function cmpIdMap(c) {
   return Array.from({ length: c.totals.orig }, (_, k) => (where[k + 1] ? `${k + 1} > ${where[k + 1]}` : `${k + 1} discarded`));
 }
 
+let CMP_FOLD = false; // the comparison section folded up, so the two flow charts sit closer together
+
 function renderCompare() {
   const box = $('comparebox');
   if (!box) return;
@@ -3021,8 +3106,8 @@ function renderCompare() {
     return `<tr><td>${esc(text)}</td><td>${esc(role)}</td><td>${r.orig}</td><td>${r.need}</td><td>${r.reused}</td><td style="font-weight:700;${r.order ? 'color:#1a8a1a' : ''}">${r.order}</td><td style="${r.drop ? 'color:#b00' : ''}">${r.drop}</td></tr>`;
   }).join('');
   const map = cmpIdMap(c).map((m) => `<span style="display:inline-block;margin:1px 8px 1px 0;white-space:nowrap;${/discarded/.test(m) ? 'color:#b00;font-weight:700' : ''}">${m}</span>`).join('');
-  box.innerHTML = '<div class="bdh">Plate pack comparison <span>Plates the modified pack needs, minus the plates the original pack can supply.</span></div>'
-    + `<div style="padding:4px 4px 10px"><div class="sub" style="margin-bottom:6px">Original ${t.orig} plates${ORIG.name ? ' (' + esc(ORIG.name) + ')' : ''}. Modified pack ${t.need} plates: reuse ${t.reused}, <b>order ${t.order} new</b>, discard ${t.drop}.</div>`
+  box.innerHTML = `<div class="bdh" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><button class="sec" id="cmpfold" title="${CMP_FOLD ? 'Show' : 'Hide'} the comparison" style="padding:0 8px">${CMP_FOLD ? '&#9656;' : '&#9662;'}</button>Plate pack comparison <span>${CMP_FOLD ? `Hidden: reuse ${t.reused}, order ${t.order} new, discard ${t.drop}.` : 'Plates the modified pack needs, minus the plates the original pack can supply.'}</span></div>`
+    + `<div style="padding:4px 4px 10px;${CMP_FOLD ? 'display:none' : ''}"><div class="sub" style="margin-bottom:6px">Original ${t.orig} plates${ORIG.name ? ' (' + esc(ORIG.name) + ')' : ''}. Modified pack ${t.need} plates: reuse ${t.reused}, <b>order ${t.order} new</b>, discard ${t.drop}.</div>`
     + '<table><thead><tr><th>Plate type</th><th>Function</th><th>In original</th><th>Needed</th><th>Reused</th><th>To order</th><th>Discarded</th></tr></thead><tbody>'
     + rows + `<tr style="font-weight:700"><td>Total</td><td></td><td>${t.orig}</td><td>${t.need}</td><td>${t.reused}</td><td>${t.order}</td><td>${t.drop}</td></tr></tbody></table>`
     + `<div class="sub" style="margin:8px 0 2px">Original plate number &gt; position in the modified pack:</div><div style="font-size:12px">${map}</div>`
@@ -3094,15 +3179,17 @@ function exportMessage(text) {
   if (el) el.textContent = text;
 }
 
+const exportStripEl = () => (isModActive() && $('modstripsvg')) || $('stripsvg');
+
 function exportSvg() {
-  const el = $('stripsvg');
+  const el = exportStripEl();
   if (!el) return;
   const box = el.viewBox.baseVal;
-  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), exportName(fileBase() + cmpSuffix(), 'svg'));
+  download(new Blob([svgText(el, 0, 0, box.width, box.height, box.width, box.height)], { type: 'image/svg+xml' }), withModified(() => exportName(fileBase() + cmpSuffix(), 'svg')));
 }
 
 function exportPng() {
-  const el = $('stripsvg');
+  const el = exportStripEl();
   if (!el) return;
   const box = el.viewBox.baseVal;
   const scale = Math.min(4, 15000 / box.width); // sharp, but under the browser's canvas size limit
@@ -3111,19 +3198,19 @@ function exportPng() {
   exportMessage('Making PNG...');
   svgToCanvas(svgText(el, 0, 0, box.width, box.height, w, h), w, h)
     .then((canvas) => canvas.toBlob((blob) => {
-      download(blob, exportName(fileBase() + cmpSuffix(), 'png'));
+      download(blob, withModified(() => exportName(fileBase() + cmpSuffix(), 'png')));
       exportMessage('PNG saved.');
     }, 'image/png'))
     .catch((err) => exportMessage('PNG failed: ' + err.message));
 }
 
 function exportPdf() {
-  const el = $('stripsvg');
+  const el = exportStripEl();
   if (!el) return;
   exportMessage('Making PDF...');
-  makePdf(el)
-    .then((blob) => {
-      download(blob, exportName(fileBase() + cmpSuffix(), 'pdf'));
+  withModifiedAsync(async () => ({ blob: await makePdf(el), name: exportName(fileBase() + cmpSuffix(), 'pdf') }))
+    .then(({ blob, name }) => {
+      download(blob, name);
       exportMessage('PDF saved.');
     })
     .catch((err) => exportMessage('PDF failed: ' + err.message));
@@ -4102,7 +4189,7 @@ function wireBuilder(prefix) {
       MOD = { result, hasSides: /[HLM](Na|Wi)\b/.test((result.info && result.info.grouping) || '') };
       MODSIG = modSig();
       message.textContent = `Modified pack built: ${result.plates.length} plates.`;
-      if (S.cmpShow) { PARSED = { generated: true, result }; applyAll(); } else renderCompare();
+      render();
       return;
     }
     if (ORIG) resetModify('The original plate pack was rebuilt, so Modify Plate Pack was reset.', false);
@@ -4303,6 +4390,9 @@ function plateListRows(P, info, turns, flow) {
 
 async function exportPlaSheet() {
   if (!S.plates.length) return;
+  return withModifiedAsync(exportPlaSheetNow); // the modified pack's sheet while Modify Plate Pack is on
+}
+async function exportPlaSheetNow() {
   exportMessage('Making PLA sheet...');
   const { info, passes, turns, f, rows, P, list, groupingText } = plaSheetData();
   const built = !!(PARSED && PARSED.generated);
@@ -4414,7 +4504,7 @@ async function exportPlaSheet() {
     if (wasShort) { S.short = false; render(); }
     let L = null;
     try {
-      const el = $('stripsvg');
+      const el = isModActive() ? $('modstripsvg') : $('stripsvg');
       if (el) L = await flowChartLayout(el);
     } finally {
       if (wasShort) { S.short = true; render(); }
@@ -4460,7 +4550,7 @@ async function exportPlaSheet() {
     y -= 14;
     wrapText(cmpIdMap(cmp).join(',   '), 110).forEach((line) => { room(12); add(45, 8.5, 'F1', line); y -= 11; });
     y -= 8;
-    wrapText(cmpRuleText(cmp) + ' Grey outline = reused plate, green outline = new plate (see the flow chart in the sheet when the new-plates view is on).', 110).forEach((line) => { room(12); add(45, 8, 'F1', line); y -= 10; });
+    wrapText(cmpRuleText(cmp) + ' Grey outline = reused plate, green outline = new plate (the modified flow is drawn under the comparison on screen).', 110).forEach((line) => { room(12); add(45, 8, 'F1', line); y -= 10; });
   }
 
   // ---- The side view comes just before the assumptions page ----
@@ -4502,7 +4592,7 @@ async function exportPlaSheet() {
     });
   }
 
-  download(makeTextPdf(pages), exportName(fileBase().replace(/_short$/, '') + '_PLA_sheet', 'pdf'));
+  download(makeTextPdf(pages), exportName(fileBase().replace(/_short$/, '') + cmpSuffix() + '_PLA_sheet', 'pdf'));
   exportMessage('PLA sheet saved.');
 }
 $('savesheet').addEventListener('click', exportPlaSheet);
@@ -4528,7 +4618,7 @@ function applyAll() {
   renderPanel();
   render();
   if (PARSED.generated) $('p3panel').style.display = 'none'; // a built layout has no source PLA to show
-  else if (!S.cmpShow) fillBuilderFromLayout(); // a loaded PLA also fills in the Build PLA boxes (not while the comparison view is on)
+  else fillBuilderFromLayout(); // a loaded PLA also fills in the Build PLA boxes
 }
 
 /** Render one PDF page to a PNG data URL (used for the "Source" panel). */
@@ -4620,29 +4710,8 @@ function blankModBuilder() {
 }
 
 /** Put the original pack back on screen after the modified one was shown. */
-function hideNewPlates() {
-  const st = ORIG.state;
-  const open = S.cmpOpen;
-  Object.keys(S).forEach((k) => delete S[k]);
-  Object.assign(S, { ...st, plates: st.plates.map((p) => ({ ...p })), blocks: st.blocks && st.blocks.map((blk) => ({ ...blk })) });
-  PARSED = ORIG.parsed;
-  S.cmpShow = false;
-  S.cmpOpen = open;
-  $('rules').style.display = S.oldfmt || PARSED.generated ? 'none' : '';
-  $('p3h').textContent = S.oldfmt ? 'Source Plate Sequence - Full PLA ' : 'Source Plate Sequence - PLA Page';
-  $('p3s').textContent = S.oldfmt ? 'Show/Hide the full PLA' : 'Show/Hide plate sequence from PLA';
-  $('p3img').style.display = S.oldfmt ? 'none' : '';
-  $('p3pages').innerHTML = ORIG.p3 || '';
-  renderPanel();
-  render();
-  if (PARSED.generated) $('p3panel').style.display = 'none';
-  if (ORIG.p3disp !== undefined) $('p3panel').style.display = ORIG.p3disp;
-  $('cmpshow').textContent = 'Show Plate Pack + New Plates';
-}
-
 /** Turn Modify Plate Pack off: forget the original and the modified pack, blank the second builder. */
 function resetModify(msg, restoreView) {
-  if (restoreView !== false && S.cmpShow && ORIG && ORIG.state) hideNewPlates();
   ORIG = null;
   MOD = null;
   S.cmpShow = false;
@@ -4663,7 +4732,7 @@ const cmpSay = (t, bad) => { $('cmpmsg').style.color = bad ? '#b00' : ''; $('cmp
 
 $('modpack').addEventListener('click', () => {
   if (!S.plates.length) return;
-  if (modActive) { setModUi(false); return; } // collapse; the original and the modified pack are kept
+  if (modActive) { setModUi(false); render(); return; } // collapse; the original and the modified pack are kept, but the breakdown and exports go back to the original
   if (!ORIG) {
     ORIG = {
       plates: S.plates.map((p) => ({ ...p })), info: { ...S.info }, hasSides: groupingHasSides(),
@@ -4679,6 +4748,7 @@ $('modpack').addEventListener('click', () => {
   }
   $('modunitnote').textContent = 'Unit: ' + (ORIG.info.model || 'not named') + ' (the same unit as the original pack)';
   setModUi(true);
+  render();
 });
 
 $('cmppacks').addEventListener('click', () => {
@@ -4691,22 +4761,15 @@ $('cmppacks').addEventListener('click', () => {
 });
 
 $('cmpshow').addEventListener('click', () => {
-  if (S.cmpShow) { hideNewPlates(); cmpSay(''); return; }
+  if (S.cmpShow) { S.cmpShow = false; $('cmpshow').textContent = 'Show Plate Pack + New Plates'; cmpSay(''); render(); return; }
   if (!ORIG) { cmpSay('Press Modify Plate Pack first.', true); return; }
   if (!ensureModBuilt()) return;
-  ORIG.state = snapshotState(); // so Hide can bring the original back exactly as it is now, edits included
-  ORIG.parsed = PARSED;
-  ORIG.p3 = $('p3pages').innerHTML;
-  S.short = false; // every plate has to be drawn to be outlined
   S.cmpShow = true;
   S.cmpOpen = true;
-  ORIG.p3disp = $('p3panel').style.display;
-  PARSED = MOD.parsed || { generated: true, result: MOD.result };
-  if (MOD.parsed) S.info = MOD.parsed.info;
-  applyAll();
-  if (MOD.parsed) $('p3panel').style.display = 'none'; // the source pictures belong to the first PLA
+  render();
   $('cmpshow').textContent = 'Hide new-plates view';
-  cmpSay('Grey outline = reused original plate (its original number is above it). Green outline = new plate.');
+  cmpSay('The modified plate pack is drawn under the comparison. Grey outline = reused original plate (its original number is above it). Green outline = new plate.');
+  $('modstripbox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
 /** A second PLA file for the modified pack. It has to be the same unit as the first PLA. */
@@ -4714,7 +4777,6 @@ $('modfile').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file || !ORIG) return;
   const say = (t, bad) => { $('modmsg').style.color = bad ? '#b00' : ''; $('modmsg').textContent = t; };
-  if (S.cmpShow) { hideNewPlates(); cmpSay(''); }
   say(`Reading ${file.name} ...`);
   try {
     const pdf = await readPdf(await file.arrayBuffer());
@@ -4741,12 +4803,38 @@ $('modfile').addEventListener('change', async (e) => {
     MODSIG = modSig();
     const warn = !a || !b ? ' WARNING: the unit name could not be read from one of the PLAs, so the unit was not checked.' : '';
     say(`Loaded ${file.name} as the modified pack: ${result.plates.length} plates${b ? ', ' + parsed.info.model : ''}. ${filled ? 'The boxes below were filled in from it.' : fillMsg}${warn}`, !!warn || !filled);
-    if (S.cmpShow) { PARSED = parsed; S.info = parsed.info; applyAll(); } else renderCompare();
+    render();
   } catch (err) {
     say('Could not read that PDF: ' + err.message, true);
     e.target.value = '';
     console.error(err);
   }
+});
+
+$('modpng').addEventListener('click', () => {
+  const el = $('modstripsvg');
+  if (!el) return;
+  const box = el.viewBox.baseVal;
+  const scale = Math.min(4, 15000 / box.width);
+  const w = box.width * scale;
+  const h = box.height * scale;
+  svgToCanvas(svgText(el, 0, 0, box.width, box.height, w, h), w, h)
+    .then((canvas) => {
+      const keep = { info: S.info, plates: S.plates, short: S.short };
+      let name;
+      try { // the file name describes the modified pack, not the original
+        S.info = MOD.parsed ? MOD.parsed.info : MOD.result.info;
+        S.plates = MOD.result.plates;
+        S.short = false;
+        name = exportName(fileBase() + '_modified_pack', 'png');
+      } finally { Object.assign(S, keep); }
+      canvas.toBlob((blob) => download(blob, name), 'image/png');
+    })
+    .catch((err) => cmpSay('PNG failed: ' + err.message, true));
+});
+
+$('comparebox').addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('#cmpfold')) { CMP_FOLD = !CMP_FOLD; renderCompare(); }
 });
 
 $('cmpreset').addEventListener('click', () => resetModify('Modify Plate Pack was reset.'));
